@@ -434,7 +434,7 @@ export const attributionProvider = {
       tenant_id: attribution.tenant_id ?? undefined,
       app: attribution.app,
       platform: attribution.platform,
-      channel: attribution.channel,
+      channel: attribution.channel ?? undefined,
       source_system: "ATTRIBUTION_ADMIN",
       metadata: {
         from_partner: attribution.partner_name_snapshot,

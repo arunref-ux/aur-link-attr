@@ -154,7 +154,7 @@ export const simulatedRepository: AttributionRepository = {
     );
   },
   findSessionByDeviceHint: (hint) =>
-    store.acquisitionSessions.findLast((s) => s.device_session_id === hint) ?? null,
+    [...store.acquisitionSessions].reverse().find((s) => s.device_session_id === hint) ?? null,
   listClicksForJourney: (id) => store.clicks.filter((c) => c.acquisition_journey_id === id),
   insertJourney: (j) => {
     if (store.acquisitionJourneys.some((x) => x.acquisition_journey_id === j.acquisition_journey_id))

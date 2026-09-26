@@ -34,8 +34,7 @@ import {
 
 const STEPS: { step: SimulationStep; label: string; button: string }[] = [
   { step: "CLICK", label: "Redirect", button: "Simulate Link Click" },
-  { step: "INSTALL", label: "Install", button: "Simulate App Install" },
-  { step: "FIRST_OPEN", label: "First open", button: "Simulate First Open" },
+  { step: "FIRST_LAUNCH", label: "First launch (install + first open)", button: "Simulate First Launch" },
   { step: "SIGNUP_STARTED", label: "Signup started", button: "Start Signup" },
   { step: "SIGNUP_COMPLETED", label: "Signup completed", button: "Complete Signup" },
   { step: "TENANT_CREATED", label: "Tenant", button: "Create Tenant" },
@@ -59,14 +58,14 @@ export function JourneySimulator({
   const [failNext, setFailNext] = useState(false);
 
   const { data: attribution } = useQuery({
-    queryKey: ["simulated-attribution", state?.attribution_id],
-    queryFn: () => simulationProvider.getAttribution(state!.attribution_id),
-    enabled: !!state,
+    queryKey: ["simulated-attribution", state?.acquisition_journey_id, state?.technical.length],
+    queryFn: () => simulationProvider.getAttribution(state!.acquisition_journey_id!),
+    enabled: !!state?.acquisition_journey_id,
   });
   const { data: events } = useQuery({
-    queryKey: ["simulated-events", state?.attribution_id],
-    queryFn: () => attributionClient.listEvents({ attribution_id: state!.attribution_id }),
-    enabled: !!state,
+    queryKey: ["simulated-events", state?.acquisition_journey_id, state?.technical.length],
+    queryFn: () => attributionClient.listEvents({ attribution_id: state!.acquisition_journey_id! }),
+    enabled: !!state?.acquisition_journey_id,
   });
 
   const completed = state?.completed ?? [];
@@ -249,12 +248,12 @@ export function JourneySimulator({
         {attribution ? (
           <div className="rounded-lg border border-border bg-muted/30 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="label-eyebrow">Live attribution record</p>
+              <p className="label-eyebrow">Live journey (created by the backend)</p>
               <MethodBadge method={attribution.attribution_method} />
             </div>
             <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Row label="Attribution ID" value={attribution.attribution_id} mono />
-              <Row label="Session" value={attribution.session_id} mono />
+              <Row label="Acquisition journey" value={attribution.attribution_id} mono />
+              <Row label="Status" value={attribution.status} />
               <Row label="Click" value={attribution.click_id ?? "—"} mono />
               <Row label="Install" value={attribution.install_id ?? "—"} mono />
               <Row label="Tenant" value={attribution.tenant_id ?? "—"} mono />
@@ -305,7 +304,7 @@ function StepDetail({ step, state }: { step: SimulationStep; state: SimulationSt
       </p>
     );
   }
-  if (step === "INSTALL" && state?.install) {
+  if (step === "FIRST_LAUNCH" && state?.install) {
     return (
       <p className="mono-token text-xs text-muted-foreground">
         {state.install.install_id} ·{" "}

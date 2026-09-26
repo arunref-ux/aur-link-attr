@@ -11,12 +11,15 @@
  *   createLink            POST  /api/v1/attribution/links              (admin)
  *   disableLink/enable    PATCH /api/v1/attribution/links/{id}         (admin)
  *   overrideAttribution   POST  /api/v1/attributions/{id}/override     (admin)
+ *   firstLaunch           POST  /api/v1/attribution/first-launch       (app)
  *   ingestEvent           POST  /api/v1/attribution/events             (trusted service)
  *   simulateRedirect      GET   https://go.aurumi.ai/x/{token}         (public)
  *   get…, list…          GET   /api/v1/attribution/...                (admin read)
  */
 
 import type {
+  FirstLaunchOutcome,
+  FirstLaunchRequest,
   IngestEventRequest,
   IngestOutcome,
   RedirectOutcome,
@@ -70,6 +73,7 @@ export interface AttributionClient {
   listDomains: Api["listDomains"];
   /* production contract */
   ingestEvent(req: IngestEventRequest, credential: ServiceCredential): Promise<IngestOutcome>;
+  firstLaunch(req: FirstLaunchRequest, credential: ServiceCredential): Promise<FirstLaunchOutcome>;
   simulateRedirect(input: RedirectInput): Promise<RedirectOutcome>;
   getResolutions(attributionId: string): Promise<AttributionResolution[]>;
   getCurrentAttribution(attributionId: string): Promise<CurrentAttributionProjection | null>;
@@ -109,6 +113,7 @@ export const simulatedAttributionClient: AttributionClient = {
   listProviders: () => p.listProviders(),
   listDomains: () => p.listDomains(),
 
+  firstLaunch: async (req, credential) => clone(simulatedBackend.firstLaunch(req, credential)),
   ingestEvent: async (req, credential) => clone(simulatedBackend.ingestEvent(req, credential)),
   simulateRedirect: async (input) => clone(simulatedBackend.redirect(input)),
   getResolutions: async (id) =>
@@ -121,7 +126,9 @@ export const simulatedAttributionClient: AttributionClient = {
   getAcquisitionSessions: async (id) => {
     const a = store.attributions.find((x) => x.attribution_id === id);
     return clone(
-      a ? store.acquisitionSessions.filter((s) => s.device_session_id === a.session_id) : [],
+      a?.acquisition_journey_id
+        ? store.acquisitionSessions.filter((s) => s.acquisition_journey_id === a.acquisition_journey_id)
+        : [],
     );
   },
   getConversionEvents: async (tenantId) =>

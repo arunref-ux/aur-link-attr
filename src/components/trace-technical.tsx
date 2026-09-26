@@ -47,9 +47,20 @@ export function TraceTechnical({
       </button>
       {open ? (
         <div className="mt-5 space-y-6">
+          {attribution && !attribution.acquisition_journey_id ? (
+            <p className="rounded-md border border-claimed/40 bg-claimed/10 px-3 py-2 text-xs text-foreground">
+              <span className="font-semibold">Legacy simulated journey.</span> This sample predates
+              the V1.2 journey lifecycle (no acquisition_journeys, acquisition_sessions or
+              signup_bindings rows). Do not use it as a production lifecycle example.
+            </p>
+          ) : null}
           <section>
             <p className="label-eyebrow mb-2">Acquisition</p>
             <dl className="mono-token grid gap-2 text-xs sm:grid-cols-3">
+              <div>
+                <dt className="text-muted-foreground">acquisition_journey_id</dt>
+                <dd>{attribution?.acquisition_journey_id ?? "— (legacy)"}</dd>
+              </div>
               <div>
                 <dt className="text-muted-foreground">link_id</dt>
                 <dd>{attribution?.link_id ?? "—"}</dd>
@@ -61,9 +72,8 @@ export function TraceTechnical({
               <div>
                 <dt className="text-muted-foreground">acquisition_session_id</dt>
                 <dd>
-                  {sessions?.find((s) => s.click_id === attribution?.click_id)
-                    ?.acquisition_session_id ??
-                    `${attribution?.session_id ?? "—"} (seeded device session)`}
+                  {sessions?.[0]?.acquisition_session_id ??
+                    `${attribution?.session_id ?? "—"} (legacy device session)`}
                 </dd>
               </div>
             </dl>

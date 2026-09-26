@@ -1,12 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import {
-  Activity,
-  GitBranch,
-  LayoutDashboard,
-  Link2,
-  Settings2,
-  Target,
-} from "lucide-react";
+import { Activity, GitBranch, LayoutDashboard, Link2, Settings2, Target } from "lucide-react";
 import type { ReactNode } from "react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 

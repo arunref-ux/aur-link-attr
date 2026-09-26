@@ -129,9 +129,9 @@ describe("Simulator behaviour", () => {
       app: "AURA",
       destination: "SIGNUP",
     });
-    const first = await simulationProvider.start(link.link_id, "ANDROID");
-    await simulationProvider.step(first, "CLICK");
-    await simulationProvider.step(first, "FIRST_LAUNCH");
+    let first = await simulationProvider.start(link.link_id, "ANDROID");
+    first = await simulationProvider.step(first, "CLICK");
+    first = await simulationProvider.step(first, "FIRST_LAUNCH");
     const before = store.attributions.find((a) => a.attribution_id === first.acquisition_journey_id!)!;
     expect(before.partner_id).toBe("P-104");
 
@@ -157,9 +157,9 @@ describe("Simulator behaviour", () => {
   });
 
   it("G — override records A → B while the original click stays A", async () => {
-    const s = await simulationProvider.start("LNK-0001", "ANDROID");
-    await simulationProvider.step(s, "CLICK");
-    await simulationProvider.step(s, "FIRST_LAUNCH");
+    let s = await simulationProvider.start("LNK-0001", "ANDROID");
+    s = await simulationProvider.step(s, "CLICK");
+    s = await simulationProvider.step(s, "FIRST_LAUNCH");
     const a = store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!)!;
     const originalClick = { ...store.clicks.find((c) => c.click_id === a.click_id)! };
     expect(a.partner_id).toBe("P-104");

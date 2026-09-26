@@ -51,13 +51,15 @@ describe("Ingestion contract", () => {
     const before = repo.counts();
     s = await simulationProvider.retryLast(s);
     expect(repo.counts()).toEqual(before);
-    const body = s.technical.at(-1)!.response as { success: boolean; data: { duplicate: boolean } };
+    const body = s.technical.at(-1)!.response as { success: boolean; duplicate: boolean };
     expect(body.success).toBe(true);
-    expect(body.data.duplicate).toBe(true);
+    expect(body.duplicate).toBe(true);
     const req = s.last_request!.request;
     expect(
       store.events.filter(
-        (e) => e.source_system === req.source_system && e.source_event_id === req.source_event_id,
+        (e) =>
+          e.source_system === req.source_system &&
+          e.source_event_id === `${req.source_event_id}:first_open`,
       ),
     ).toHaveLength(1);
   });
@@ -76,8 +78,10 @@ describe("Ingestion contract", () => {
 
     let u = await simulationProvider.start("LNK-0001", "ANDROID");
     u = await simulationProvider.step(u, "CLICK");
+    const linkJourney = u.acquisition_journey_id!;
     u = await simulationProvider.step(u, "FIRST_LAUNCH", { acquisition_token: "unknown-token" });
-    const ua = store.attributions.find((x) => x.attribution_id === u.acquisition_journey_id!)!;
+    const ua = store.attributions.find((x) => x.attribution_id === linkJourney)!;
+    expect(u.acquisition_journey_id).not.toBe(linkJourney);
     expect(ua.partner_id).toBeNull();
     expect(ua.install_id).toBeNull();
   });
@@ -104,8 +108,8 @@ describe("Ingestion contract", () => {
     s = await simulationProvider.step(s, "FIRST_LAUNCH", { untrusted: { partner_id: "P-118" } });
     const a = store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!)!;
     expect(a.partner_id).toBe("P-104");
-    const body = s.technical.at(-1)!.response as { data: { ignored_fields: string[] } };
-    expect(body.data.ignored_fields).toContain("partner_id");
+    const body = s.technical.at(-1)!.response as { ignored_fields: string[] };
+    expect(body.ignored_fields).toContain("partner_id");
   });
 });
 

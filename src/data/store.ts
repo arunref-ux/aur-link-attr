@@ -1173,7 +1173,13 @@ function buildJourney(seed: JourneySeed): Attribution {
 
   if (seed.overrideTo) {
     const target = store.partners.find((p) => p.partner_id === seed.overrideTo!.partner_id)!;
-    recordOverride(attribution, target, seed.overrideTo.reason, seed.overrideTo.actor, iso(base, 9 * 1440));
+    recordOverride(
+      attribution,
+      target,
+      seed.overrideTo.reason,
+      seed.overrideTo.actor,
+      iso(base, 9 * 1440),
+    );
   }
 
   store.attributions.push(attribution);

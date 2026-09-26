@@ -26,9 +26,7 @@ export interface ApiError {
   message: string;
 }
 
-export type ApiResult<T> =
-  | { success: true; data: T }
-  | { success: false; error: ApiError };
+export type ApiResult<T> = { success: true; data: T } | { success: false; error: ApiError };
 
 /** Trusted producers. Each is authoritative for a specific set of facts. */
 export type SourceSystem =

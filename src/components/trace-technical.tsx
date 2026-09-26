@@ -50,12 +50,19 @@ export function TraceTechnical({
           <section>
             <p className="label-eyebrow mb-2">Acquisition</p>
             <dl className="mono-token grid gap-2 text-xs sm:grid-cols-3">
-              <div><dt className="text-muted-foreground">link_id</dt><dd>{attribution?.link_id ?? "—"}</dd></div>
-              <div><dt className="text-muted-foreground">click_id</dt><dd>{attribution?.click_id ?? "—"}</dd></div>
+              <div>
+                <dt className="text-muted-foreground">link_id</dt>
+                <dd>{attribution?.link_id ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">click_id</dt>
+                <dd>{attribution?.click_id ?? "—"}</dd>
+              </div>
               <div>
                 <dt className="text-muted-foreground">acquisition_session_id</dt>
                 <dd>
-                  {sessions?.find((s) => s.click_id === attribution?.click_id)?.acquisition_session_id ??
+                  {sessions?.find((s) => s.click_id === attribution?.click_id)
+                    ?.acquisition_session_id ??
                     `${attribution?.session_id ?? "—"} (seeded device session)`}
                 </dd>
               </div>
@@ -66,16 +73,33 @@ export function TraceTechnical({
             <Table
               head={["resolution_id", "kind", "method", "rules_version", "resolved_at", "reason"]}
               rows={(resolutions ?? []).map((r) => [
-                r.resolution_id, r.kind, r.method, r.rules_version, formatTime(r.resolved_at), r.reason,
+                r.resolution_id,
+                r.kind,
+                r.method,
+                r.rules_version,
+                formatTime(r.resolved_at),
+                r.reason,
               ])}
             />
           </section>
           <section>
             <p className="label-eyebrow mb-2">Events</p>
             <Table
-              head={["event_id", "source_system", "source_event_id", "occurred_at", "received_at", "schema"]}
+              head={[
+                "event_id",
+                "source_system",
+                "source_event_id",
+                "occurred_at",
+                "received_at",
+                "schema",
+              ]}
               rows={events.map((e) => [
-                e.event_id, e.source_system, e.source_event_id, e.occurred_at, e.received_at, e.schema_version ?? "1",
+                e.event_id,
+                e.source_system,
+                e.source_event_id,
+                e.occurred_at,
+                e.received_at,
+                e.schema_version ?? "1",
               ])}
             />
           </section>
@@ -90,12 +114,22 @@ function Table({ head, rows }: { head: string[]; rows: string[][] }) {
     <div className="overflow-x-auto rounded-md border border-border">
       <table className="mono-token w-full text-[11px]">
         <thead className="bg-muted/40 text-muted-foreground">
-          <tr>{head.map((h) => <th key={h} className="px-3 py-2 text-left font-normal">{h}</th>)}</tr>
+          <tr>
+            {head.map((h) => (
+              <th key={h} className="px-3 py-2 text-left font-normal">
+                {h}
+              </th>
+            ))}
+          </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-t border-border align-top">
-              {r.map((c, j) => <td key={j} className="px-3 py-1.5 text-foreground">{c}</td>)}
+              {r.map((c, j) => (
+                <td key={j} className="px-3 py-1.5 text-foreground">
+                  {c}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>

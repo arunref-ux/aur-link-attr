@@ -102,7 +102,9 @@ function EntryCard({ entry }: { entry: TechnicalEntry }) {
                   <span className="text-muted-foreground">{h.label} </span>
                   <span className="mono-token text-foreground">{h.value}</span>
                 </span>
-                {i < entry.correlation.length - 1 ? <span className="text-muted-foreground">→</span> : null}
+                {i < entry.correlation.length - 1 ? (
+                  <span className="text-muted-foreground">→</span>
+                ) : null}
               </span>
             ))}
           </div>
@@ -119,12 +121,24 @@ function EntryCard({ entry }: { entry: TechnicalEntry }) {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-1.5 border-t border-border px-4 py-2 text-xs text-muted-foreground hover:text-foreground"
       >
-        <ChevronDown className={open ? "size-3.5 rotate-180 transition-transform" : "size-3.5 transition-transform"} />
+        <ChevronDown
+          className={
+            open ? "size-3.5 rotate-180 transition-transform" : "size-3.5 transition-transform"
+          }
+        />
         {open ? "Hide" : "Show"} request &amp; response
       </button>
       {open ? (
         <div className="grid gap-3 border-t border-border px-4 py-3 md:grid-cols-2">
-          <Json label="Request" value={entry.payload ?? { method: "GET", url: entry.request_line.replace("GET ", "https://") }} />
+          <Json
+            label="Request"
+            value={
+              entry.payload ?? {
+                method: "GET",
+                url: entry.request_line.replace("GET ", "https://"),
+              }
+            }
+          />
           <Json label="Response" value={entry.response} />
         </div>
       ) : null}

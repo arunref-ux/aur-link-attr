@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ProductionContract } from "@/components/production-contract";
 import { attributionClient } from "@/client/attribution-client";
 import { labelForRule } from "@/lib/attribution-rules";
 import { titleCase } from "@/lib/format";
@@ -66,6 +68,12 @@ function ConfigurationPage() {
         description="Rules are configuration, not code buried in screens. The attribution engine reads these values at resolution time."
       />
 
+      <Tabs defaultValue="rules">
+        <TabsList>
+          <TabsTrigger value="rules">Rules &amp; providers</TabsTrigger>
+          <TabsTrigger value="contract">Production contract</TabsTrigger>
+        </TabsList>
+        <TabsContent value="rules" className="mt-6">
       <Panel
         title="Attribution rules"
         subtitle={
@@ -310,6 +318,11 @@ function ConfigurationPage() {
           and treated as a future capability.
         </SourceNote>
       </Panel>
+        </TabsContent>
+        <TabsContent value="contract" className="mt-6">
+          <ProductionContract />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

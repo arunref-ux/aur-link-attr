@@ -8,19 +8,6 @@ import { attributionProvider, simulationProvider } from "@/providers";
 const repo = simulatedBackend.repository;
 
 describe("Redirect contract", () => {
-  it("active token → click + acquisition session + Play redirect with opaque referrer", () => {
-    const before = repo.counts();
-    const out = simulatedBackend.redirect({ token: "7DX92KQ", platform: "ANDROID", device_session_id: "SES-T1" });
-    const link = store.links.find((l) => l.token === "7DX92KQ");
-    if (!link || link.status !== "ACTIVE") return; // seed token may differ; covered below
-    expect(out.http.status).toBe(302);
-    expect(repo.counts().clicks).toBe(before.clicks + 1);
-    expect(repo.counts().acquisition_sessions).toBe(before.acquisition_sessions + 1);
-    expect(out.location).toContain("play.google.com");
-    expect(out.referrer).toBe(`aur_at=${out.acquisition_token}`);
-    expect(out.referrer).not.toContain(link.partner_id ?? "@@");
-  });
-
   it("active seeded link always produces a session", () => {
     const link = store.links.find((l) => l.link_id === "LNK-0001")!;
     const before = repo.counts();

@@ -41,6 +41,7 @@ import {
   formatTime,
   titleCase,
 } from "@/lib/format";
+import { TraceTechnical } from "@/components/trace-technical";
 import { attributionClient } from "@/client/attribution-client";
 import { partnerProvider } from "@/providers";
 
@@ -230,6 +231,8 @@ function TraceDetailPage() {
           })}
         </ol>
       </Panel>
+
+      <TraceTechnical attributionId={attribution.attribution_id} events={events ?? []} />
 
       <OverrideDialog
         open={overrideOpen}

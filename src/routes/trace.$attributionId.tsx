@@ -120,7 +120,7 @@ function TraceDetailPage() {
           </div>
           <Field label="Source partner" value={attribution.partner_name_snapshot ?? "Unattributed"} />
           <Field label="Campaign" value={campaign?.name ?? "—"} />
-          <Field label="Channel" value={CHANNEL_LABEL[attribution.channel]} />
+          <Field label="Channel" value={attribution.channel ? CHANNEL_LABEL[attribution.channel] : "Direct / organic"} />
           <Field label="Target app" value={APP_LABEL[attribution.app]} />
           <Field label="Platform" value={PLATFORM_LABEL[attribution.platform]} />
           <Field label="Link" value={link?.short_url ?? "—"} mono />

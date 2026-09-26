@@ -5,6 +5,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { MethodBadge, SourceNote } from "@/components/bits";
+import { TechnicalJourney } from "@/components/technical-journey";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,7 +25,12 @@ import {
 import type { Platform } from "@/domain/types";
 import { APP_LABEL, CHANNEL_LABEL, formatCurrency, formatTime } from "@/lib/format";
 import { attributionClient } from "@/client/attribution-client";
-import { simulationProvider, type LinkRow, type SimulationState, type SimulationStep } from "@/providers";
+import {
+  simulationProvider,
+  type LinkRow,
+  type SimulationState,
+  type SimulationStep,
+} from "@/providers";
 
 const STEPS: { step: SimulationStep; label: string; button: string }[] = [
   { step: "CLICK", label: "Redirect", button: "Simulate Link Click" },
@@ -49,6 +56,7 @@ export function JourneySimulator({
   const [platform, setPlatform] = useState<Platform>("ANDROID");
   const [state, setState] = useState<SimulationState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failNext, setFailNext] = useState(false);
 
   const { data: attribution } = useQuery({
     queryKey: ["simulated-attribution", state?.attribution_id],
@@ -70,10 +78,34 @@ export function JourneySimulator({
     setBusy(true);
     try {
       const current = state ?? (await simulationProvider.start(link.link_id, platform));
-      const updated = await simulationProvider.step(current, next!.step);
+      const updated = await simulationProvider.step(current, next!.step, {
+        failBeforeCommit: failNext,
+      });
       setState(updated);
+      if (failNext) {
+        setFailNext(false);
+        toast.error("Event rolled back before commit — nothing was saved. Retry to apply it.");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Step failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retry() {
+    if (!state) return;
+    setBusy(true);
+    try {
+      const updated = await simulationProvider.retryLast(state);
+      const last = updated.last_request;
+      setState(
+        last &&
+          !updated.completed.includes(last.step) &&
+          (updated.technical.at(-1)?.status ?? 500) < 400
+          ? { ...updated, completed: [...updated.completed, last.step] }
+          : updated,
+      );
     } finally {
       setBusy(false);
     }
@@ -143,53 +175,76 @@ export function JourneySimulator({
           </p>
         ) : null}
 
-        <ol className="space-y-2">
-          {STEPS.map((s, i) => {
-            const done = completed.includes(s.step);
-            const isNext = i === nextIndex;
-            return (
-              <li
-                key={s.step}
-                className={
-                  done
-                    ? "rounded-md border border-deterministic/30 bg-deterministic/5 px-4 py-3"
-                    : isNext
-                      ? "rounded-md border border-primary/40 bg-primary/5 px-4 py-3"
-                      : "rounded-md border border-border px-4 py-3 opacity-60"
-                }
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    {done ? (
-                      <CheckCircle2 className="size-4 text-deterministic" />
-                    ) : (
-                      <CircleDashed className="size-4 text-muted-foreground" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        Step {i + 2} — {s.label}
-                      </p>
-                      {done ? (
-                        <StepDetail step={s.step} state={state} />
-                      ) : (
-                        <p className="text-xs text-muted-foreground">Pending</p>
-                      )}
+        <Tabs defaultValue="business">
+          <TabsList>
+            <TabsTrigger value="business">Business journey</TabsTrigger>
+            <TabsTrigger value="technical">Technical journey</TabsTrigger>
+          </TabsList>
+          <TabsContent value="technical" className="mt-3">
+            <TechnicalJourney
+              entries={state?.technical ?? []}
+              canRetry={!!state?.last_request}
+              busy={busy}
+              failNext={failNext}
+              onFailNextChange={setFailNext}
+              onRetry={() => void retry()}
+            />
+            {next && link.status === "ACTIVE" ? (
+              <Button className="mt-3" size="sm" disabled={busy} onClick={() => void run()}>
+                {next.button} <ArrowRight className="size-4" />
+              </Button>
+            ) : null}
+          </TabsContent>
+          <TabsContent value="business" className="mt-3">
+            <ol className="space-y-2">
+              {STEPS.map((s, i) => {
+                const done = completed.includes(s.step);
+                const isNext = i === nextIndex;
+                return (
+                  <li
+                    key={s.step}
+                    className={
+                      done
+                        ? "rounded-md border border-deterministic/30 bg-deterministic/5 px-4 py-3"
+                        : isNext
+                          ? "rounded-md border border-primary/40 bg-primary/5 px-4 py-3"
+                          : "rounded-md border border-border px-4 py-3 opacity-60"
+                    }
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        {done ? (
+                          <CheckCircle2 className="size-4 text-deterministic" />
+                        ) : (
+                          <CircleDashed className="size-4 text-muted-foreground" />
+                        )}
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            Step {i + 2} — {s.label}
+                          </p>
+                          {done ? (
+                            <StepDetail step={s.step} state={state} />
+                          ) : (
+                            <p className="text-xs text-muted-foreground">Pending</p>
+                          )}
+                        </div>
+                      </div>
+                      {isNext ? (
+                        <Button
+                          size="sm"
+                          disabled={busy || (!state && link.status !== "ACTIVE")}
+                          onClick={() => void run()}
+                        >
+                          {s.button} <ArrowRight className="size-4" />
+                        </Button>
+                      ) : null}
                     </div>
-                  </div>
-                  {isNext ? (
-                    <Button
-                      size="sm"
-                      disabled={busy || (!state && link.status !== "ACTIVE")}
-                      onClick={() => void run()}
-                    >
-                      {s.button} <ArrowRight className="size-4" />
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
+                  </li>
+                );
+              })}
+            </ol>
+          </TabsContent>
+        </Tabs>
 
         {attribution ? (
           <div className="rounded-lg border border-border bg-muted/30 p-4">

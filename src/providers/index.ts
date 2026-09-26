@@ -728,7 +728,11 @@ export interface SimulationState {
   redirect_target?: string;
   technical: TechnicalEntry[];
   /** Last ingested event request (for "Retry Last Event"). */
-  last_request?: { request: IngestEventRequest; credential: ServiceCredential; step: SimulationStep };
+  last_request?: {
+    request: IngestEventRequest;
+    credential: ServiceCredential;
+    step: SimulationStep;
+  };
 }
 
 export class LinkUnavailableError extends Error {
@@ -967,7 +971,10 @@ function buildRequest(
       install_id: device.install_id,
       acquisition_session_id: device.acquisition_session_id,
       ...(step === "SIGNUP_COMPLETED"
-        ? { contact_email: "simulated.prospect@example.in", tenant_name: "Simulated Prospect Pvt Ltd" }
+        ? {
+            contact_email: "simulated.prospect@example.in",
+            tenant_name: "Simulated Prospect Pvt Ltd",
+          }
         : {}),
     };
   } else if (step === "TENANT_CREATED" || step === "TENANT_ACTIVATED") {

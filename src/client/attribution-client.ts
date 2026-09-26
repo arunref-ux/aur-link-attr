@@ -13,10 +13,15 @@
  *   overrideAttribution   POST  /api/v1/attributions/{id}/override     (admin)
  *   ingestEvent           POST  /api/v1/attribution/events             (trusted service)
  *   simulateRedirect      GET   https://go.aurumi.ai/x/{token}         (public)
- *   get*/list*            GET   /api/v1/attribution/...                (admin read)
+ *   get…, list…          GET   /api/v1/attribution/...                (admin read)
  */
 
-import type { IngestEventRequest, IngestOutcome, RedirectOutcome, ServiceCredential } from "@/backend/contract";
+import type {
+  IngestEventRequest,
+  IngestOutcome,
+  RedirectOutcome,
+  ServiceCredential,
+} from "@/backend/contract";
 import { simulatedBackend, type RedirectInput } from "@/backend/simulated-backend";
 import { store } from "@/data/store";
 import type {
@@ -107,11 +112,17 @@ export const simulatedAttributionClient: AttributionClient = {
   ingestEvent: async (req, credential) => clone(simulatedBackend.ingestEvent(req, credential)),
   simulateRedirect: async (input) => clone(simulatedBackend.redirect(input)),
   getResolutions: async (id) =>
-    clone(simulatedBackend.repository.listResolutions(id).sort((a, b) => a.created_at.localeCompare(b.created_at))),
+    clone(
+      simulatedBackend.repository
+        .listResolutions(id)
+        .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+    ),
   getCurrentAttribution: async (id) => clone(store.currentAttribution[id] ?? null),
   getAcquisitionSessions: async (id) => {
     const a = store.attributions.find((x) => x.attribution_id === id);
-    return clone(a ? store.acquisitionSessions.filter((s) => s.device_session_id === a.session_id) : []);
+    return clone(
+      a ? store.acquisitionSessions.filter((s) => s.device_session_id === a.session_id) : [],
+    );
   },
   getConversionEvents: async (tenantId) =>
     clone(store.conversionEvents.filter((c) => c.tenant_id === tenantId)),

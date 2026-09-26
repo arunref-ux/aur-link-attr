@@ -6,12 +6,7 @@
  * maps to BEGIN … COMMIT / ROLLBACK. UI code never imports this module.
  */
 
-import {
-  applyResolution,
-  nextId,
-  pushEvent,
-  store,
-} from "@/data/store";
+import { applyResolution, nextId, pushEvent, store } from "@/data/store";
 import type {
   AcquisitionSession,
   Attribution,
@@ -120,7 +115,11 @@ export const simulatedRepository: AttributionRepository = {
   },
   listClicksForDeviceSession: (id) => store.clicks.filter((c) => c.session_id === id),
   insertSession: (session) => {
-    if (store.acquisitionSessions.some((s) => s.public_acquisition_token === session.public_acquisition_token)) {
+    if (
+      store.acquisitionSessions.some(
+        (s) => s.public_acquisition_token === session.public_acquisition_token,
+      )
+    ) {
       throw new Error("UNIQUE violation: acquisition_sessions.public_acquisition_token");
     }
     store.acquisitionSessions.push(session);
@@ -151,7 +150,8 @@ export const simulatedRepository: AttributionRepository = {
     if (
       event.source_event_id &&
       store.events.some(
-        (e) => e.source_system === event.source_system && e.source_event_id === event.source_event_id,
+        (e) =>
+          e.source_system === event.source_system && e.source_event_id === event.source_event_id,
       )
     ) {
       throw new Error("UNIQUE violation: attribution_events(source_system, source_event_id)");
@@ -175,8 +175,11 @@ export const simulatedRepository: AttributionRepository = {
   listResolutions: (id) => store.resolutions.filter((r) => r.subject_id === id),
 
   insertConversion: (c) => {
-    if (c.transaction_id && c.conversion_type !== "SUBSCRIPTION_STARTED" &&
-      store.conversionEvents.some((x) => x.transaction_id === c.transaction_id)) {
+    if (
+      c.transaction_id &&
+      c.conversion_type !== "SUBSCRIPTION_STARTED" &&
+      store.conversionEvents.some((x) => x.transaction_id === c.transaction_id)
+    ) {
       throw new Error("UNIQUE violation: conversion_events.transaction_id");
     }
     store.conversionEvents.push(c);
@@ -213,7 +216,9 @@ export const simulatedRepository: AttributionRepository = {
       const target = store[t] as unknown[];
       target.splice(0, target.length, ...clone(snap.tables[t]));
     }
-    store.currentAttribution = JSON.parse(snap.currentAttribution) as typeof store.currentAttribution;
+    store.currentAttribution = JSON.parse(
+      snap.currentAttribution,
+    ) as typeof store.currentAttribution;
     Object.assign(store.rules, JSON.parse(snap.rules) as AttributionRulesConfig);
     store.rulesVersion = snap.rulesVersion;
   },

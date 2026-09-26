@@ -8,23 +8,14 @@ import { attributionProvider, simulationProvider } from "@/providers";
 const repo = simulatedBackend.repository;
 
 describe("Redirect contract", () => {
-  it("active token → click + acquisition session + Play redirect with opaque referrer", () => {
-    const before = repo.counts();
-    const out = simulatedBackend.redirect({ token: "7DX92KQ", platform: "ANDROID", device_session_id: "SES-T1" });
-    const link = store.links.find((l) => l.token === "7DX92KQ");
-    if (!link || link.status !== "ACTIVE") return; // seed token may differ; covered below
-    expect(out.http.status).toBe(302);
-    expect(repo.counts().clicks).toBe(before.clicks + 1);
-    expect(repo.counts().acquisition_sessions).toBe(before.acquisition_sessions + 1);
-    expect(out.location).toContain("play.google.com");
-    expect(out.referrer).toBe(`aur_at=${out.acquisition_token}`);
-    expect(out.referrer).not.toContain(link.partner_id ?? "@@");
-  });
-
   it("active seeded link always produces a session", () => {
     const link = store.links.find((l) => l.link_id === "LNK-0001")!;
     const before = repo.counts();
-    const out = simulatedBackend.redirect({ token: link.token, platform: "ANDROID", device_session_id: "SES-T2" });
+    const out = simulatedBackend.redirect({
+      token: link.token,
+      platform: "ANDROID",
+      device_session_id: "SES-T2",
+    });
     expect(out.error).toBeNull();
     expect(repo.counts().acquisition_sessions).toBe(before.acquisition_sessions + 1);
     expect(out.referrer).not.toContain("P-104");
@@ -33,14 +24,22 @@ describe("Redirect contract", () => {
   it("disabled token → no click, no session", () => {
     const link = store.links.find((l) => l.status === "DISABLED")!;
     const before = repo.counts();
-    const out = simulatedBackend.redirect({ token: link.token, platform: "ANDROID", device_session_id: "SES-T3" });
+    const out = simulatedBackend.redirect({
+      token: link.token,
+      platform: "ANDROID",
+      device_session_id: "SES-T3",
+    });
     expect(out.error?.code).toBe("LINK_DISABLED");
     expect(repo.counts().clicks).toBe(before.clicks);
     expect(repo.counts().acquisition_sessions).toBe(before.acquisition_sessions);
   });
 
   it("unknown token → safe 404 failure", () => {
-    const out = simulatedBackend.redirect({ token: "NOPE000", platform: "ANDROID", device_session_id: "SES-T4" });
+    const out = simulatedBackend.redirect({
+      token: "NOPE000",
+      platform: "ANDROID",
+      device_session_id: "SES-T4",
+    });
     expect(out.http.status).toBe(404);
     expect(out.error?.code).toBe("INVALID_TOKEN");
     expect(out.location).toBe("https://aurumi.ai");
@@ -60,7 +59,9 @@ describe("Ingestion contract", () => {
     expect(body.data.duplicate).toBe(true);
     const req = s.last_request!.request;
     expect(
-      store.events.filter((e) => e.source_system === req.source_system && e.source_event_id === req.source_event_id),
+      store.events.filter(
+        (e) => e.source_system === req.source_system && e.source_event_id === req.source_event_id,
+      ),
     ).toHaveLength(1);
   });
 
@@ -85,11 +86,15 @@ describe("Ingestion contract", () => {
     let s = await simulationProvider.start("LNK-0001", "ANDROID");
     s = await simulationProvider.step(s, "CLICK");
     const counts = repo.counts();
-    const attr = JSON.stringify(store.attributions.find((x) => x.attribution_id === s.attribution_id));
+    const attr = JSON.stringify(
+      store.attributions.find((x) => x.attribution_id === s.attribution_id),
+    );
     s = await simulationProvider.step(s, "INSTALL", { failBeforeCommit: true });
     expect(s.technical.at(-1)!.status).toBe(500);
     expect(repo.counts()).toEqual(counts);
-    expect(JSON.stringify(store.attributions.find((x) => x.attribution_id === s.attribution_id))).toBe(attr);
+    expect(
+      JSON.stringify(store.attributions.find((x) => x.attribution_id === s.attribution_id)),
+    ).toBe(attr);
     expect(s.completed).not.toContain("INSTALL");
   });
 

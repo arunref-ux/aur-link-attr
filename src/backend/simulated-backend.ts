@@ -97,7 +97,11 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
       acquisition_session_id: null,
       acquisition_token: null,
     };
-    const safe = (error: ApiError, status: 302 | 404, location = SAFE_FALLBACK): RedirectOutcome => ({
+    const safe = (
+      error: ApiError,
+      status: 302 | 404,
+      location = SAFE_FALLBACK,
+    ): RedirectOutcome => ({
       ...base,
       http: { method: "GET", url, status },
       pipeline,
@@ -115,7 +119,11 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
       pipeline.push({ stage: "Resolve token", ok: true, detail: "token found" });
       pipeline.push({ stage: "Verify link", ok: true, detail: `link ${link.link_id} exists` });
       if (link.status !== "ACTIVE") {
-        pipeline.push({ stage: "Verify status", ok: false, detail: "link DISABLED — no click, no session" });
+        pipeline.push({
+          stage: "Verify status",
+          ok: false,
+          detail: "link DISABLED — no click, no session",
+        });
         return safe(fail("LINK_DISABLED", "This attribution link is inactive."), 302);
       }
       pipeline.push({ stage: "Verify status", ok: true, detail: "link ACTIVE" });
@@ -134,7 +142,11 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
           redirectUrl(link.app, input.platform, null),
         );
       }
-      pipeline.push({ stage: "Verify campaign", ok: true, detail: `${campaign.campaign_id} ACTIVE` });
+      pipeline.push({
+        stage: "Verify campaign",
+        ok: true,
+        detail: `${campaign.campaign_id} ACTIVE`,
+      });
 
       const now = input.now ?? new Date().toISOString();
       return repo.transaction(() => {
@@ -169,8 +181,16 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
           device_session_id: input.device_session_id,
         };
         repo.insertSession(session);
-        pipeline.push({ stage: "Create acquisition session", ok: true, detail: session.acquisition_session_id });
-        pipeline.push({ stage: "Generate acquisition token", ok: true, detail: `${token} (opaque)` });
+        pipeline.push({
+          stage: "Create acquisition session",
+          ok: true,
+          detail: session.acquisition_session_id,
+        });
+        pipeline.push({
+          stage: "Generate acquisition token",
+          ok: true,
+          detail: `${token} (opaque)`,
+        });
 
         const attribution = repo.findAttribution({ device_session_id: input.device_session_id });
         const fields = {
@@ -206,7 +226,12 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
           ...fields,
           source_system: "REDIRECT_SERVICE",
           source_event_id: `redirect:${click.click_id}:302`,
-          metadata: { target: click.redirect_target, destination: link.destination, referrer, simulated: true },
+          metadata: {
+            target: click.redirect_target,
+            destination: link.destination,
+            referrer,
+            simulated: true,
+          },
         });
         if (attribution) {
           // Clicks are facts; the engine reports the provisional state (PENDING).
@@ -220,7 +245,9 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
         pipeline.push({
           stage: "Generate redirect",
           ok: true,
-          detail: referrer ? `Install Referrer: ${referrer}` : "no Install Referrer on this platform",
+          detail: referrer
+            ? `Install Referrer: ${referrer}`
+            : "no Install Referrer on this platform",
         });
         return {
           http: { method: "GET", url, status: 302 },
@@ -259,7 +286,11 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
     const installSignal = signal
       ? { ...signal, occurred_at: at }
       : install
-        ? { platform: install.platform, occurred_at: install.occurred_at, referrer_recovered: install.referrer_recovered }
+        ? {
+            platform: install.platform,
+            occurred_at: install.occurred_at,
+            referrer_recovered: install.referrer_recovered,
+          }
         : null;
     return resolveAttribution({
       acquisitionFacts: repo.listClicksForDeviceSession(attribution.session_id),
@@ -317,16 +348,35 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
     // 1. Authentication / source validation
     const allowed = SOURCE_AUTHORITY[req.event_type] as string[] | undefined;
     if (credential.source_system !== req.source_system) {
-      pipeline.push({ stage: "Authenticate source", ok: false, detail: `credential is ${credential.source_system}, payload claims ${req.source_system}` });
-      return reject(401, fail("UNAUTHORIZED_SOURCE", "Caller is not authenticated as the claimed source."));
+      pipeline.push({
+        stage: "Authenticate source",
+        ok: false,
+        detail: `credential is ${credential.source_system}, payload claims ${req.source_system}`,
+      });
+      return reject(
+        401,
+        fail("UNAUTHORIZED_SOURCE", "Caller is not authenticated as the claimed source."),
+      );
     }
-    const appEvent = req.event_type === "INSTALL_REFERRER_RECEIVED" || req.event_type === "FIRST_OPEN";
+    const appEvent =
+      req.event_type === "INSTALL_REFERRER_RECEIVED" || req.event_type === "FIRST_OPEN";
     const appMismatch = appEvent && req.source_system !== `${req.app}_${req.platform}`;
     if (!allowed?.includes(req.source_system) || appMismatch) {
-      pipeline.push({ stage: "Authenticate source", ok: false, detail: `${req.source_system} is not authoritative for ${req.event_type}` });
-      return reject(403, fail("UNAUTHORIZED_SOURCE", `${req.source_system} may not submit ${req.event_type}.`));
+      pipeline.push({
+        stage: "Authenticate source",
+        ok: false,
+        detail: `${req.source_system} is not authoritative for ${req.event_type}`,
+      });
+      return reject(
+        403,
+        fail("UNAUTHORIZED_SOURCE", `${req.source_system} may not submit ${req.event_type}.`),
+      );
     }
-    pipeline.push({ stage: "Authenticate source", ok: true, detail: `${req.source_system} authenticated` });
+    pipeline.push({
+      stage: "Authenticate source",
+      ok: true,
+      detail: `${req.source_system} authenticated`,
+    });
 
     // 2. Schema validation
     const invalid = validate(req);
@@ -334,20 +384,41 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
       pipeline.push({ stage: "Validate schema", ok: false, detail: invalid });
       return reject(400, fail("INVALID_EVENT", invalid));
     }
-    pipeline.push({ stage: "Validate schema", ok: true, detail: `payload valid (schema v${SCHEMA_VERSION})` });
+    pipeline.push({
+      stage: "Validate schema",
+      ok: true,
+      detail: `payload valid (schema v${SCHEMA_VERSION})`,
+    });
 
     // 3. Idempotency — UNIQUE(source_system, source_event_id)
     const prior = repo.findIdempotency(req.source_system, req.source_event_id);
     if (prior) {
-      pipeline.push({ stage: "Idempotency check", ok: true, detail: "source_event_id already seen — replaying original result, nothing written" });
+      pipeline.push({
+        stage: "Idempotency check",
+        ok: true,
+        detail: "source_event_id already seen — replaying original result, nothing written",
+      });
       const original = prior.response as IngestEventResponse | null;
       const body: IngestEventResponse = original
         ? { ...original, duplicate: true }
         : {
-            accepted: true, duplicate: true, outcome: "APPLIED", event_ids: [], attribution_id: null,
-            resolution: null, received_at: prior.received_at, ignored_fields: [], warnings: [], correlation: [],
+            accepted: true,
+            duplicate: true,
+            outcome: "APPLIED",
+            event_ids: [],
+            attribution_id: null,
+            resolution: null,
+            received_at: prior.received_at,
+            ignored_fields: [],
+            warnings: [],
+            correlation: [],
           };
-      return { request: req, http: { method: "POST", path, status: 200, body: { success: true, data: body } }, pipeline, committed: false };
+      return {
+        request: req,
+        http: { method: "POST", path, status: 200, body: { success: true, data: body } },
+        pipeline,
+        committed: false,
+      };
     }
     pipeline.push({ stage: "Idempotency check", ok: true, detail: "source_event_id new" });
 
@@ -357,7 +428,11 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
       for (const f of BILLING_ONLY_FIELDS) if (req[f] !== undefined) ignored.push(f);
     }
     if (ignored.length > 0) {
-      pipeline.push({ stage: "Server authority", ok: true, detail: `ignored untrusted fields: ${ignored.join(", ")}` });
+      pipeline.push({
+        stage: "Server authority",
+        ok: true,
+        detail: `ignored untrusted fields: ${ignored.join(", ")}`,
+      });
     }
 
     const received_at = options.now ?? new Date().toISOString();
@@ -366,24 +441,48 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
     // 4. Resolve acquisition token / correlation
     let attribution: Attribution | null = null;
     let tokenResolved = false;
-    const isAppEvent = req.event_type === "INSTALL_REFERRER_RECEIVED" || req.event_type === "FIRST_OPEN";
+    const isAppEvent =
+      req.event_type === "INSTALL_REFERRER_RECEIVED" || req.event_type === "FIRST_OPEN";
     if (isAppEvent) {
       if (req.acquisition_token) {
         const session = repo.findSessionByToken(req.acquisition_token);
         if (session) {
           tokenResolved = true;
           attribution = repo.findAttribution({ device_session_id: session.device_session_id });
-          pipeline.push({ stage: "Resolve acquisition token", ok: true, detail: `aur_at → ${session.acquisition_session_id} → ${session.click_id} → ${session.link_id}` });
+          pipeline.push({
+            stage: "Resolve acquisition token",
+            ok: true,
+            detail: `aur_at → ${session.acquisition_session_id} → ${session.click_id} → ${session.link_id}`,
+          });
         } else {
-          warnings.push(fail("UNKNOWN_ACQUISITION_TOKEN", "Acquisition token not recognised; install recorded without attribution."));
-          pipeline.push({ stage: "Resolve acquisition token", ok: false, detail: "unknown token — will NOT fabricate attribution" });
+          warnings.push(
+            fail(
+              "UNKNOWN_ACQUISITION_TOKEN",
+              "Acquisition token not recognised; install recorded without attribution.",
+            ),
+          );
+          pipeline.push({
+            stage: "Resolve acquisition token",
+            ok: false,
+            detail: "unknown token — will NOT fabricate attribution",
+          });
         }
       } else if (req.match_hint) {
         attribution = repo.findAttribution({ device_session_id: req.match_hint });
-        pipeline.push({ stage: "Resolve acquisition token", ok: true, detail: "no referrer token — provider-dependent matching signals used" });
+        pipeline.push({
+          stage: "Resolve acquisition token",
+          ok: true,
+          detail: "no referrer token — provider-dependent matching signals used",
+        });
       } else {
         attribution = repo.findAttribution({ install_id: req.install_id });
-        pipeline.push({ stage: "Resolve acquisition token", ok: !!attribution, detail: attribution ? `correlated by install_id ${req.install_id}` : "no token — unresolved" });
+        pipeline.push({
+          stage: "Resolve acquisition token",
+          ok: !!attribution,
+          detail: attribution
+            ? `correlated by install_id ${req.install_id}`
+            : "no token — unresolved",
+        });
       }
     } else {
       attribution =
@@ -392,9 +491,15 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
         repo.findAttribution({ user_id: req.user_id }) ??
         repo.findAttribution({ install_id: req.install_id }) ??
         (req.acquisition_session_id
-          ? repo.findAttribution({ device_session_id: repo.findSession(req.acquisition_session_id)?.device_session_id })
+          ? repo.findAttribution({
+              device_session_id: repo.findSession(req.acquisition_session_id)?.device_session_id,
+            })
           : null);
-      pipeline.push({ stage: "Correlate", ok: !!attribution, detail: attribution ? `correlated to ${attribution.attribution_id}` : "no matching journey" });
+      pipeline.push({
+        stage: "Correlate",
+        ok: !!attribution,
+        detail: attribution ? `correlated to ${attribution.attribution_id}` : "no matching journey",
+      });
     }
 
     try {
@@ -409,26 +514,61 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
           ignored_fields: ignored,
           warnings,
         };
-        repo.saveIdempotency({ source_system: req.source_system, source_event_id: req.source_event_id, received_at, response: body });
+        repo.saveIdempotency({
+          source_system: req.source_system,
+          source_event_id: req.source_event_id,
+          received_at,
+          response: body,
+        });
         if (options.failBeforeCommit) {
-          pipeline.push({ stage: "COMMIT", ok: false, detail: "failure injected before COMMIT → ROLLBACK" });
+          pipeline.push({
+            stage: "COMMIT",
+            ok: false,
+            detail: "failure injected before COMMIT → ROLLBACK",
+          });
           throw new SimulatedCommitFailure();
         }
-        pipeline.push({ stage: "COMMIT", ok: true, detail: "event, resolution and projection committed atomically" });
+        pipeline.push({
+          stage: "COMMIT",
+          ok: true,
+          detail: "event, resolution and projection committed atomically",
+        });
         return body;
       });
-      return { request: req, http: { method: "POST", path, status: 200, body: { success: true, data: response } }, pipeline, committed: true };
+      return {
+        request: req,
+        http: { method: "POST", path, status: 200, body: { success: true, data: response } },
+        pipeline,
+        committed: true,
+      };
     } catch (err) {
       if (!(err instanceof SimulatedCommitFailure)) {
-        pipeline.push({ stage: "ROLLBACK", ok: false, detail: "unexpected error — no partial state persisted" });
+        pipeline.push({
+          stage: "ROLLBACK",
+          ok: false,
+          detail: "unexpected error — no partial state persisted",
+        });
       } else {
-        pipeline.push({ stage: "ROLLBACK", ok: true, detail: "no event, resolution or projection change persisted" });
+        pipeline.push({
+          stage: "ROLLBACK",
+          ok: true,
+          detail: "no event, resolution or projection change persisted",
+        });
       }
-      return reject(500, fail("INTERNAL_ERROR", "The event could not be recorded. Retry with the same source_event_id."));
+      return reject(
+        500,
+        fail(
+          "INTERNAL_ERROR",
+          "The event could not be recorded. Retry with the same source_event_id.",
+        ),
+      );
     }
   }
 
-  type Applied = Pick<IngestEventResponse, "outcome" | "event_ids" | "attribution_id" | "resolution" | "correlation">;
+  type Applied = Pick<
+    IngestEventResponse,
+    "outcome" | "event_ids" | "attribution_id" | "resolution" | "correlation"
+  >;
 
   function apply(
     req: IngestEventRequest,
@@ -440,10 +580,24 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
     const at = req.occurred_at;
     const eventIds: string[] = [];
     const dup = (why: string): Applied => {
-      pipeline.push({ stage: "Business uniqueness", ok: true, detail: `${why} — accepted, no new business fact` });
-      return { outcome: "BUSINESS_DUPLICATE", event_ids: [], attribution_id: attribution?.attribution_id ?? null, resolution: null, correlation: [] };
+      pipeline.push({
+        stage: "Business uniqueness",
+        ok: true,
+        detail: `${why} — accepted, no new business fact`,
+      });
+      return {
+        outcome: "BUSINESS_DUPLICATE",
+        event_ids: [],
+        attribution_id: attribution?.attribution_id ?? null,
+        resolution: null,
+        correlation: [],
+      };
     };
-    const append = (type: AttributionEvent["event_type"], extra: Partial<AttributionEvent>, suffix = "") => {
+    const append = (
+      type: AttributionEvent["event_type"],
+      extra: Partial<AttributionEvent>,
+      suffix = "",
+    ) => {
       const e = repo.appendEvent({
         event_type: type,
         occurred_at: at,
@@ -476,10 +630,15 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
         reason: attribution.resolution_reason,
       };
     };
-    const asId = () => (attribution?.click_id ? repo.findSessionByClick(attribution.click_id)?.acquisition_session_id : null) ?? "—";
+    const asId = () =>
+      (attribution?.click_id
+        ? repo.findSessionByClick(attribution.click_id)?.acquisition_session_id
+        : null) ?? "—";
     const partnerHop = (): CorrelationHop => ({
       label: "Partner",
-      value: attribution?.partner_id ? `${attribution.partner_id} · ${attribution.partner_name_snapshot ?? "unknown"}` : "none (unattributed)",
+      value: attribution?.partner_id
+        ? `${attribution.partner_id} · ${attribution.partner_name_snapshot ?? "unknown"}`
+        : "none (unattributed)",
     });
     const conversion = (type: ConversionType) => {
       repo.insertConversion({
@@ -492,7 +651,8 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
         subscription_id: req.subscription_id ?? null,
         transaction_id: req.transaction_id ?? null,
         plan_id: req.source_system === "BILLING_SERVICE" ? (req.plan_id ?? null) : null,
-        price_version_id: req.source_system === "BILLING_SERVICE" ? (req.price_version_id ?? null) : null,
+        price_version_id:
+          req.source_system === "BILLING_SERVICE" ? (req.price_version_id ?? null) : null,
         amount: req.source_system === "BILLING_SERVICE" ? (req.amount ?? null) : null,
         currency: req.source_system === "BILLING_SERVICE" ? (req.currency ?? null) : null,
         occurred_at: at,
@@ -503,7 +663,8 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
 
     switch (req.event_type) {
       case "INSTALL_REFERRER_RECEIVED": {
-        if (repo.findInstall(req.install_id!)) return dup(`install_id ${req.install_id} already recorded`);
+        if (repo.findInstall(req.install_id!))
+          return dup(`install_id ${req.install_id} already recorded`);
         if (attribution?.install_id) return dup("journey already has a canonical install");
         repo.insertInstall({
           install_id: req.install_id!,
@@ -518,13 +679,33 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
         });
         pipeline.push({ stage: "Persist install signal", ok: true, detail: req.install_id! });
         if (!attribution) {
-          append("INSTALL_UNATTRIBUTED", { install_id: req.install_id, attribution_method: "UNATTRIBUTED" });
-          pipeline.push({ stage: "Append immutable event", ok: true, detail: "INSTALL_UNATTRIBUTED (unresolved token)" });
-          pipeline.push({ stage: "Resolution Engine", ok: true, detail: "skipped — no acquisition context; not attributed" });
-          return { outcome: "UNRESOLVED", event_ids: eventIds, attribution_id: null, resolution: null, correlation: [] };
+          append("INSTALL_UNATTRIBUTED", {
+            install_id: req.install_id,
+            attribution_method: "UNATTRIBUTED",
+          });
+          pipeline.push({
+            stage: "Append immutable event",
+            ok: true,
+            detail: "INSTALL_UNATTRIBUTED (unresolved token)",
+          });
+          pipeline.push({
+            stage: "Resolution Engine",
+            ok: true,
+            detail: "skipped — no acquisition context; not attributed",
+          });
+          return {
+            outcome: "UNRESOLVED",
+            event_ids: eventIds,
+            attribution_id: null,
+            resolution: null,
+            correlation: [],
+          };
         }
         attribution.install_id = req.install_id!;
-        const res = runEngine(attribution, at, { platform: req.platform, referrer_recovered: tokenResolved });
+        const res = runEngine(attribution, at, {
+          platform: req.platform,
+          referrer_recovered: tokenResolved,
+        });
         repo.recordResolution(attribution, res);
         const install = repo.findInstall(req.install_id!)!;
         install.click_id = res.click_id;
@@ -538,17 +719,32 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
           partner_id: res.partner_id ?? undefined,
           attribution_method: res.attribution_method,
           metadata: {
-            method_detail: tokenResolved ? (req.platform === "ANDROID" ? "Play Install Referrer" : "Preserved attribution token") : "Provider-dependent / future capability",
+            method_detail: tokenResolved
+              ? req.platform === "ANDROID"
+                ? "Play Install Referrer"
+                : "Preserved attribution token"
+              : "Provider-dependent / future capability",
             referrer: tokenResolved ? "Recovered successfully" : "Not available",
             acquisition_session_id: asId(),
             simulated: true,
           },
         });
         pipeline.push({ stage: "Append immutable event", ok: true, detail: eventIds.join(", ") });
-        pipeline.push({ stage: "Resolution Engine", ok: true, detail: `${res.attribution_method} · ${res.partner_id ? partnerNameOf(res.partner_id) ?? res.partner_id : "no partner"} · ${repo.getRulesVersion()}` });
-        pipeline.push({ stage: "Update current attribution", ok: true, detail: attribution.current_resolution_id ?? "" });
+        pipeline.push({
+          stage: "Resolution Engine",
+          ok: true,
+          detail: `${res.attribution_method} · ${res.partner_id ? (partnerNameOf(res.partner_id) ?? res.partner_id) : "no partner"} · ${repo.getRulesVersion()}`,
+        });
+        pipeline.push({
+          stage: "Update current attribution",
+          ok: true,
+          detail: attribution.current_resolution_id ?? "",
+        });
         return {
-          outcome: "APPLIED", event_ids: eventIds, attribution_id: attribution.attribution_id, resolution: resolutionSummary(),
+          outcome: "APPLIED",
+          event_ids: eventIds,
+          attribution_id: attribution.attribution_id,
+          resolution: resolutionSummary(),
           correlation: [
             { label: "Install", value: install.install_id },
             { label: "Acquisition session", value: asId() },
@@ -560,24 +756,50 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
         };
       }
       case "FIRST_OPEN": {
-        if (attribution && repo.hasEvent(attribution.attribution_id, "FIRST_OPEN")) return dup("first open already recorded for this journey");
-        append("FIRST_OPEN", { install_id: req.install_id, click_id: attribution?.click_id ?? undefined, metadata: { attribution_context: attribution ? "restored" : "unresolved", simulated: true } });
+        if (attribution && repo.hasEvent(attribution.attribution_id, "FIRST_OPEN"))
+          return dup("first open already recorded for this journey");
+        append("FIRST_OPEN", {
+          install_id: req.install_id,
+          click_id: attribution?.click_id ?? undefined,
+          metadata: {
+            attribution_context: attribution ? "restored" : "unresolved",
+            simulated: true,
+          },
+        });
         pipeline.push({ stage: "Append immutable event", ok: true, detail: eventIds.join(", ") });
-        pipeline.push({ stage: "Resolution Engine", ok: true, detail: "not required — install already resolved" });
-        return { outcome: attribution ? "APPLIED" : "UNRESOLVED", event_ids: eventIds, attribution_id: attribution?.attribution_id ?? null, resolution: resolutionSummary(), correlation: [] };
+        pipeline.push({
+          stage: "Resolution Engine",
+          ok: true,
+          detail: "not required — install already resolved",
+        });
+        return {
+          outcome: attribution ? "APPLIED" : "UNRESOLVED",
+          event_ids: eventIds,
+          attribution_id: attribution?.attribution_id ?? null,
+          resolution: resolutionSummary(),
+          correlation: [],
+        };
       }
       case "SIGNUP_STARTED": {
         if (!attribution) return unresolved();
-        if (attribution.signup_id) return dup(`journey already has signup ${attribution.signup_id}`);
+        if (attribution.signup_id)
+          return dup(`journey already has signup ${attribution.signup_id}`);
         attribution.user_id = req.user_id!;
         attribution.signup_id = req.signup_id!;
-        append("SIGNUP_STARTED", { install_id: attribution.install_id ?? undefined, user_id: req.user_id, signup_id: req.signup_id });
+        append("SIGNUP_STARTED", {
+          install_id: attribution.install_id ?? undefined,
+          user_id: req.user_id,
+          signup_id: req.signup_id,
+        });
         pipeline.push({ stage: "Append immutable event", ok: true, detail: eventIds.join(", ") });
         return applied([
           { label: "Signup", value: req.signup_id! },
           { label: "User", value: req.user_id! },
           { label: "Acquisition session", value: asId() },
-          { label: "Current attribution", value: `${attribution.attribution_method} · ${attribution.current_resolution_id ?? "—"}` },
+          {
+            label: "Current attribution",
+            value: `${attribution.attribution_method} · ${attribution.current_resolution_id ?? "—"}`,
+          },
           partnerHop(),
         ]);
       }
@@ -586,38 +808,78 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
         if (attribution.signup_at) return dup(`signup ${attribution.signup_id} already completed`);
         attribution.signup_at = at;
         attribution.first_conversion_at = at;
-        attribution.tenant_name = attribution.tenant_name ?? req.tenant_name ?? "Simulated Prospect Pvt Ltd";
+        attribution.tenant_name =
+          attribution.tenant_name ?? req.tenant_name ?? "Simulated Prospect Pvt Ltd";
         attribution.contact_email = req.contact_email ?? attribution.contact_email;
-        append("SIGNUP_COMPLETED", { user_id: attribution.user_id ?? undefined, signup_id: attribution.signup_id ?? undefined, metadata: { email: attribution.contact_email, simulated: true } });
+        append("SIGNUP_COMPLETED", {
+          user_id: attribution.user_id ?? undefined,
+          signup_id: attribution.signup_id ?? undefined,
+          metadata: { email: attribution.contact_email, simulated: true },
+        });
         conversion("SIGNUP_COMPLETED");
-        pipeline.push({ stage: "Append immutable event", ok: true, detail: `${eventIds.join(", ")} + conversion_event` });
+        pipeline.push({
+          stage: "Append immutable event",
+          ok: true,
+          detail: `${eventIds.join(", ")} + conversion_event`,
+        });
         return applied([
           { label: "Signup", value: attribution.signup_id ?? "—" },
           { label: "User", value: attribution.user_id ?? "—" },
           { label: "Acquisition session", value: asId() },
-          { label: "Current attribution", value: `${attribution.attribution_method} · ${attribution.current_resolution_id ?? "—"}` },
+          {
+            label: "Current attribution",
+            value: `${attribution.attribution_method} · ${attribution.current_resolution_id ?? "—"}`,
+          },
           partnerHop(),
         ]);
       }
       case "TENANT_CREATED": {
         if (!attribution) return unresolved();
-        if (attribution.tenant_id) return dup(`journey already created tenant ${attribution.tenant_id}`);
-        if (repo.findAttribution({ tenant_id: req.tenant_id })) return dup(`tenant ${req.tenant_id} already exists`);
+        if (attribution.tenant_id)
+          return dup(`journey already created tenant ${attribution.tenant_id}`);
+        if (repo.findAttribution({ tenant_id: req.tenant_id }))
+          return dup(`tenant ${req.tenant_id} already exists`);
         attribution.tenant_id = req.tenant_id!;
         attribution.tenant_created_at = at;
-        append("TENANT_CREATED", { user_id: attribution.user_id ?? undefined, tenant_id: req.tenant_id, metadata: { tenant_name: attribution.tenant_name, simulated: true } });
+        append("TENANT_CREATED", {
+          user_id: attribution.user_id ?? undefined,
+          tenant_id: req.tenant_id,
+          metadata: { tenant_name: attribution.tenant_name, simulated: true },
+        });
         conversion("TENANT_CREATED");
         const res = runEngine(attribution, at, null);
         repo.recordResolution(attribution, res);
-        append("ATTRIBUTION_RESOLVED", {
-          tenant_id: attribution.tenant_id,
-          partner_id: res.partner_id ?? undefined,
-          attribution_method: res.attribution_method,
-          metadata: { rule: repo.getRules().conflict_rule, rules_version: repo.getRulesVersion(), eligible_clicks: res.eligible_click_count, resolution_reason: res.resolution_reason, simulated: true },
-        }, ":resolution");
-        pipeline.push({ stage: "Append immutable event", ok: true, detail: `${eventIds.join(", ")} + conversion_event` });
-        pipeline.push({ stage: "Resolution Engine", ok: true, detail: `${res.attribution_method} · ${repo.getRulesVersion()}` });
-        pipeline.push({ stage: "Update current attribution", ok: true, detail: attribution.current_resolution_id ?? "" });
+        append(
+          "ATTRIBUTION_RESOLVED",
+          {
+            tenant_id: attribution.tenant_id,
+            partner_id: res.partner_id ?? undefined,
+            attribution_method: res.attribution_method,
+            metadata: {
+              rule: repo.getRules().conflict_rule,
+              rules_version: repo.getRulesVersion(),
+              eligible_clicks: res.eligible_click_count,
+              resolution_reason: res.resolution_reason,
+              simulated: true,
+            },
+          },
+          ":resolution",
+        );
+        pipeline.push({
+          stage: "Append immutable event",
+          ok: true,
+          detail: `${eventIds.join(", ")} + conversion_event`,
+        });
+        pipeline.push({
+          stage: "Resolution Engine",
+          ok: true,
+          detail: `${res.attribution_method} · ${repo.getRulesVersion()}`,
+        });
+        pipeline.push({
+          stage: "Update current attribution",
+          ok: true,
+          detail: attribution.current_resolution_id ?? "",
+        });
         return applied([
           { label: "Tenant", value: attribution.tenant_id },
           { label: "Acquisition session", value: asId() },
@@ -626,23 +888,44 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
       }
       case "TENANT_ACTIVATED": {
         if (!attribution) return unresolved();
-        if (attribution.activated_at) return dup(`tenant ${attribution.tenant_id} already activated`);
+        if (attribution.activated_at)
+          return dup(`tenant ${attribution.tenant_id} already activated`);
         attribution.activated_at = at;
         append("TENANT_ACTIVATED", { tenant_id: attribution.tenant_id ?? undefined });
         conversion("TENANT_ACTIVATED");
-        pipeline.push({ stage: "Append immutable event", ok: true, detail: `${eventIds.join(", ")} + conversion_event` });
+        pipeline.push({
+          stage: "Append immutable event",
+          ok: true,
+          detail: `${eventIds.join(", ")} + conversion_event`,
+        });
         return applied([{ label: "Tenant", value: attribution.tenant_id ?? "—" }, partnerHop()]);
       }
       case "SUBSCRIPTION_STARTED": {
         if (!attribution) return unresolved();
-        if (attribution.subscription) return dup(`subscription ${attribution.subscription.subscription_id} already started`);
-        attribution.subscription = { subscription_id: req.subscription_id!, plan_id: req.plan_id!, price_version_id: req.price_version_id!, started_at: at };
+        if (attribution.subscription)
+          return dup(`subscription ${attribution.subscription.subscription_id} already started`);
+        attribution.subscription = {
+          subscription_id: req.subscription_id!,
+          plan_id: req.plan_id!,
+          price_version_id: req.price_version_id!,
+          started_at: at,
+        };
         append("SUBSCRIPTION_STARTED", {
           tenant_id: attribution.tenant_id ?? undefined,
-          metadata: { plan_id: req.plan_id!, price_version_id: req.price_version_id!, subscription_id: req.subscription_id!, pricing_source: "PRICE_ADMIN", simulated: true },
+          metadata: {
+            plan_id: req.plan_id!,
+            price_version_id: req.price_version_id!,
+            subscription_id: req.subscription_id!,
+            pricing_source: "PRICE_ADMIN",
+            simulated: true,
+          },
         });
         conversion("SUBSCRIPTION_STARTED");
-        pipeline.push({ stage: "Append immutable event", ok: true, detail: `${eventIds.join(", ")} + conversion_event` });
+        pipeline.push({
+          stage: "Append immutable event",
+          ok: true,
+          detail: `${eventIds.join(", ")} + conversion_event`,
+        });
         return applied([
           { label: "Subscription", value: req.subscription_id! },
           { label: "Tenant", value: attribution.tenant_id ?? "—" },
@@ -652,10 +935,17 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
       case "FIRST_PAYMENT":
       case "PAYMENT_RECEIVED": {
         if (!attribution) return unresolved();
-        if (repo.findConversionByTransaction(req.transaction_id!)) return dup(`transaction ${req.transaction_id} already recorded`);
-        if (req.event_type === "FIRST_PAYMENT" && attribution.first_payment) return dup("first payment already recorded for this tenant");
+        if (repo.findConversionByTransaction(req.transaction_id!))
+          return dup(`transaction ${req.transaction_id} already recorded`);
+        if (req.event_type === "FIRST_PAYMENT" && attribution.first_payment)
+          return dup("first payment already recorded for this tenant");
         if (req.event_type === "FIRST_PAYMENT") {
-          attribution.first_payment = { transaction_id: req.transaction_id!, amount: req.amount!, currency: "INR", occurred_at: at };
+          attribution.first_payment = {
+            transaction_id: req.transaction_id!,
+            amount: req.amount!,
+            currency: "INR",
+            occurred_at: at,
+          };
           attribution.commercial_conversion_at = at;
         }
         append(req.event_type, {
@@ -664,32 +954,63 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
             transaction_id: req.transaction_id!,
             amount: req.amount!,
             currency: req.currency ?? "INR",
-            subscription_id: req.subscription_id ?? attribution.subscription?.subscription_id ?? null,
+            subscription_id:
+              req.subscription_id ?? attribution.subscription?.subscription_id ?? null,
             commission_calculation: "handled externally",
             simulated: true,
           },
         });
         conversion(req.event_type);
-        pipeline.push({ stage: "Append immutable event", ok: true, detail: `${eventIds.join(", ")} + conversion_event` });
+        pipeline.push({
+          stage: "Append immutable event",
+          ok: true,
+          detail: `${eventIds.join(", ")} + conversion_event`,
+        });
         return applied([
           { label: "Transaction", value: req.transaction_id! },
-          { label: "Subscription", value: req.subscription_id ?? attribution.subscription?.subscription_id ?? "—" },
+          {
+            label: "Subscription",
+            value: req.subscription_id ?? attribution.subscription?.subscription_id ?? "—",
+          },
           { label: "Tenant", value: attribution.tenant_id ?? "—" },
-          { label: "Attribution", value: `${attribution.attribution_id} · ${attribution.attribution_method}` },
+          {
+            label: "Attribution",
+            value: `${attribution.attribution_id} · ${attribution.attribution_method}`,
+          },
           partnerHop(),
         ]);
       }
     }
 
     function unresolved(): Applied {
-      pipeline.push({ stage: "Correlate", ok: false, detail: "no journey to correlate — nothing written" });
-      return { outcome: "UNRESOLVED", event_ids: [], attribution_id: null, resolution: null, correlation: [] };
+      pipeline.push({
+        stage: "Correlate",
+        ok: false,
+        detail: "no journey to correlate — nothing written",
+      });
+      return {
+        outcome: "UNRESOLVED",
+        event_ids: [],
+        attribution_id: null,
+        resolution: null,
+        correlation: [],
+      };
     }
     function applied(correlation: CorrelationHop[]): Applied {
       if (!pipeline.some((p) => p.stage === "Resolution Engine")) {
-        pipeline.push({ stage: "Resolution Engine", ok: true, detail: "not required — correlated to current attribution" });
+        pipeline.push({
+          stage: "Resolution Engine",
+          ok: true,
+          detail: "not required — correlated to current attribution",
+        });
       }
-      return { outcome: "APPLIED", event_ids: eventIds, attribution_id: attribution!.attribution_id, resolution: resolutionSummary(), correlation };
+      return {
+        outcome: "APPLIED",
+        event_ids: eventIds,
+        attribution_id: attribution!.attribution_id,
+        resolution: resolutionSummary(),
+        correlation,
+      };
     }
   }
 

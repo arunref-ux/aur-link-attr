@@ -21,7 +21,10 @@
 - Simulator IDs come from `nextId` (skips reserved/seeded IDs) and link tokens from `makeUniqueToken`, so interactive data never collides with seeds.
 - Domain tests live in `src/**/*.test.ts` and run with `npm test` (standalone `vitest.config.ts`), so domain behavior is verified without loading app plugins.
 - Screens talk only to `attributionClient` (`src/client/attribution-client.ts`), so a future HttpAttributionClient can replace the simulation without UI changes.
-- The production contract (API types, source authority, trust fields) lives in `src/backend/contract.ts`; `src/backend/simulated-backend.ts` implements redirect + event ingestion (auth → schema → idempotency → token resolution → append → engine → projection) inside `AttributionRepository.transaction`, so the simulator is an executable spec of the real backend.
+- The production contract lives in `src/backend/contract.ts`; `src/backend/simulated-backend.ts` implements redirect, `firstLaunch` and event ingestion with idempotency claimed inside `AttributionRepository.transaction` (request-hash conflicts → 409), so the simulator is an executable spec of the real backend.
+- `AcquisitionJourney` is the canonical attribution subject: created by the backend at redirect (link) or first launch (direct); resolutions/projections key on `acquisition_journey_id` and the console `Attribution` read model uses the journey ID as its ID — so no UI/simulator ever pre-creates attribution.
+- Signup correlates only via server-issued `signup_binding_token`, tenant only via signup/user identity; callers' journey/session IDs are ignored — so mobile clients cannot choose their journey.
+- Overrides require `expected_current_resolution_id` (409 STALE_ATTRIBUTION_STATE on mismatch), so admin overrides never silently race resolutions.
 - Persistence goes through `AttributionRepository` (`src/backend/repository.ts`), the in-memory stand-in for PostgreSQL; the Test Journey simulates devices/services that submit requests, never writing attribution directly.
 - Every resolution row is stamped with `store.rulesVersion`; rule changes bump the version so historical resolutions keep theirs.
 - No Supabase or other database: production persistence is PostgreSQL in Aurumi's own backend; this app stays a simulation.

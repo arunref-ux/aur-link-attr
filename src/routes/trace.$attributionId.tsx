@@ -118,7 +118,23 @@ function TraceDetailPage() {
               <MethodBadge method={attribution.attribution_method} />
             </dd>
           </div>
-          <Field label="Source partner" value={attribution.partner_name_snapshot ?? "Unattributed"} />
+          {attribution.overrides.length > 0 ? (
+            <>
+              <Field
+                label="Acquisition source"
+                value={acquisitionPartner(events ?? [], attribution.click_id) ?? "No partner (owned / organic)"}
+              />
+              <Field
+                label="Current attributed partner"
+                value={attribution.partner_name_snapshot ?? "Unattributed"}
+              />
+            </>
+          ) : (
+            <Field
+              label="Attributed partner"
+              value={attribution.partner_name_snapshot ?? "Unattributed"}
+            />
+          )}
           <Field label="Campaign" value={campaign?.name ?? "—"} />
           <Field label="Channel" value={attribution.channel ? CHANNEL_LABEL[attribution.channel] : "Direct / organic"} />
           <Field label="Target app" value={APP_LABEL[attribution.app]} />
@@ -136,6 +152,19 @@ function TraceDetailPage() {
       {attribution.overrides.length > 0 ? (
         <Panel className="mt-6" title="Attribution history" subtitle="Original events are never modified">
           <ol className="space-y-3">
+            <li className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
+              Acquisition source:{" "}
+              <strong className="text-foreground">
+                {acquisitionPartner(events ?? [], attribution.click_id) ?? "No partner"}
+              </strong>
+              <span className="text-muted-foreground"> — historical click, never modified</span>
+            </li>
+            <li className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
+              Original resolution:{" "}
+              <strong className="text-foreground">
+                {attribution.overrides[0]?.from_partner_name ?? "Unattributed"}
+              </strong>
+            </li>
             {attribution.overrides.map((o, i) => (
               <li key={i} className="rounded-md border border-claimed/30 bg-claimed/5 px-4 py-3">
                 <p className="text-sm text-foreground">
@@ -148,7 +177,7 @@ function TraceDetailPage() {
               </li>
             ))}
             <li className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
-              Current attribution:{" "}
+              Current attributed partner:{" "}
               <strong className="text-foreground">
                 {attribution.partner_name_snapshot ?? "Unattributed"}
               </strong>
@@ -339,14 +368,27 @@ function humanHighlights(
       add("Reason", m["reason"]);
       add("Actor", m["actor"]);
       break;
+    case "LINK_ENABLED":
+      add("Actor", m["actor"]);
+      add("Note", m["note"]);
+      break;
     case "LINK_DISABLED":
       add("Behaviour", m["behavior"]);
+      add("Actor", m["actor"]);
       add("Note", m["note"]);
       break;
     default:
       break;
   }
   return rows;
+}
+
+/** Partner on the historical click that won the original resolution. */
+function acquisitionPartner(events: AttributionEvent[], clickId: string | null): string | null {
+  const click = events.find((e) => e.event_type === "LINK_CLICKED" && e.click_id === clickId);
+  const id = click?.partner_id;
+  if (!id) return null;
+  return (click.metadata["partner_name"] as string | undefined) ?? PARTNER_NAMES[id] ?? id;
 }
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

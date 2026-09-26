@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, CheckCircle2, CircleDashed, Smartphone } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { MethodBadge, SourceNote } from "@/components/bits";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,8 @@ export function JourneySimulator({
       const current = state ?? (await simulationProvider.start(link.link_id, platform));
       const updated = await simulationProvider.step(current, next!.step);
       setState(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Step failed");
     } finally {
       setBusy(false);
     }
@@ -129,6 +132,13 @@ export function JourneySimulator({
           </div>
         </div>
 
+        {link.status !== "ACTIVE" && !state ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-foreground">
+            This link is disabled. It cannot start a new journey; existing attribution is unchanged.
+            Re-enable it to test new journeys.
+          </p>
+        ) : null}
+
         <ol className="space-y-2">
           {STEPS.map((s, i) => {
             const done = completed.includes(s.step);
@@ -163,7 +173,11 @@ export function JourneySimulator({
                     </div>
                   </div>
                   {isNext ? (
-                    <Button size="sm" disabled={busy} onClick={() => void run()}>
+                    <Button
+                      size="sm"
+                      disabled={busy || (!state && link.status !== "ACTIVE")}
+                      onClick={() => void run()}
+                    >
                       {s.button} <ArrowRight className="size-4" />
                     </Button>
                   ) : null}

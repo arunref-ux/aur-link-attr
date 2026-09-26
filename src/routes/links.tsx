@@ -182,7 +182,13 @@ function LinksPage() {
                     </td>
                     <td className="py-3">
                       <div className="flex items-center gap-1.5">
-                        <Button size="sm" variant="outline" onClick={() => setJourneyLink(l)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={l.status !== "ACTIVE"}
+                          title={l.status !== "ACTIVE" ? "Disabled links cannot start new journeys" : undefined}
+                          onClick={() => setJourneyLink(l)}
+                        >
                           <PlayCircle className="size-4" /> Test journey
                         </Button>
                         <Button

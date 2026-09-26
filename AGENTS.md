@@ -20,3 +20,8 @@
 - Referral codes are facts; they reach the engine only as normalized claims produced by the Partner Portal lookup in `src/lib/referral-lookup.ts` (exposed as `partnerProvider.lookupReferralCode`) — so the engine never owns partner master data.
 - Simulator IDs come from `nextId` (skips reserved/seeded IDs) and link tokens from `makeUniqueToken`, so interactive data never collides with seeds.
 - Domain tests live in `src/**/*.test.ts` and run with `npm test` (standalone `vitest.config.ts`), so domain behavior is verified without loading app plugins.
+- Screens talk only to `attributionClient` (`src/client/attribution-client.ts`), so a future HttpAttributionClient can replace the simulation without UI changes.
+- The production contract (API types, source authority, trust fields) lives in `src/backend/contract.ts`; `src/backend/simulated-backend.ts` implements redirect + event ingestion (auth → schema → idempotency → token resolution → append → engine → projection) inside `AttributionRepository.transaction`, so the simulator is an executable spec of the real backend.
+- Persistence goes through `AttributionRepository` (`src/backend/repository.ts`), the in-memory stand-in for PostgreSQL; the Test Journey simulates devices/services that submit requests, never writing attribution directly.
+- Every resolution row is stamped with `store.rulesVersion`; rule changes bump the version so historical resolutions keep theirs.
+- No Supabase or other database: production persistence is PostgreSQL in Aurumi's own backend; this app stays a simulation.

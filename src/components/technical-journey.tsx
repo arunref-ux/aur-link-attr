@@ -78,6 +78,13 @@ function EntryCard({ entry }: { entry: TechnicalEntry }) {
         </span>
       </div>
 
+      {entry.handoff?.length ? (
+        <div className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+          {entry.handoff.map((h) => (
+            <p key={h}>↳ {h}</p>
+          ))}
+        </div>
+      ) : null}
       <ul className="space-y-1 border-t border-border px-4 py-3">
         {entry.pipeline.map((p, i) => (
           <li key={i} className="flex items-start gap-2 text-xs">

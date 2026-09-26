@@ -138,6 +138,7 @@ export const EVENT_LABEL: Record<EventType, string> = {
   ATTRIBUTION_RESOLVED: "Attribution resolved",
   ATTRIBUTION_OVERRIDDEN: "Attribution overridden",
   LINK_DISABLED: "Link disabled",
+  LINK_ENABLED: "Link re-enabled",
 };
 
 export function methodTone(method: AttributionMethod): string {

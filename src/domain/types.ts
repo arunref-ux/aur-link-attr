@@ -59,7 +59,8 @@ export type EventType =
   | "PAYMENT_RECEIVED"
   | "ATTRIBUTION_RESOLVED"
   | "ATTRIBUTION_OVERRIDDEN"
-  | "LINK_DISABLED";
+  | "LINK_DISABLED"
+  | "LINK_ENABLED";
 
 /* ---------- External references (read-only in this system) ---------- */
 
@@ -77,6 +78,8 @@ export interface Partner {
   territory: string;
   contact_name: string;
   contact_email: string;
+  /** Referral code issued by Partner Portal (Partner Portal owns this relationship). */
+  referral_code: string;
   source_system: "PARTNER_PORTAL";
 }
 
@@ -193,8 +196,13 @@ export interface Install {
 
 export interface AttributionEvent {
   event_id: string;
+  /** Identifier assigned by the producing system (idempotency key from the source). */
+  source_event_id: string;
   event_type: EventType;
+  /** When the source says the event happened. */
   occurred_at: string;
+  /** When Aurumi received / recorded the event. */
+  received_at: string;
   attribution_id?: string | undefined;
   click_id?: string | undefined;
   session_id?: string | undefined;

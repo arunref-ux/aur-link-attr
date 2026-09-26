@@ -239,6 +239,7 @@ function TraceDetailPage() {
         onOpenChange={setOverrideOpen}
         attributionId={attribution.attribution_id}
         currentPartner={attribution.partner_name_snapshot}
+        expectedResolutionId={attribution.current_resolution_id ?? null}
       />
     </div>
   );
@@ -434,10 +435,12 @@ function OverrideDialog({
   onOpenChange,
   attributionId,
   currentPartner,
+  expectedResolutionId,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   attributionId: string;
+  expectedResolutionId: string | null;
   currentPartner: string | null;
 }) {
   const { data: partners } = useQuery({
@@ -452,12 +455,18 @@ function OverrideDialog({
       toast.error("Choose a partner and give a reason (at least 10 characters)");
       return;
     }
-    await attributionClient.overrideAttribution({
-      attribution_id: attributionId,
-      to_partner_id: toPartner,
-      reason: reason.trim(),
-      actor: "you@aurumi.ai",
-    });
+    try {
+      await attributionClient.overrideAttribution({
+        attribution_id: attributionId,
+        to_partner_id: toPartner,
+        reason: reason.trim(),
+        actor: "you@aurumi.ai",
+        expected_current_resolution_id: expectedResolutionId,
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Override failed");
+      return;
+    }
     toast.success("Attribution overridden", {
       description: "Original event history preserved; ATTRIBUTION_OVERRIDDEN recorded.",
     });

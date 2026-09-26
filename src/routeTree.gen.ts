@@ -15,6 +15,8 @@ import { Route as ConversionsRouteImport } from './routes/conversions'
 import { Route as LinksRouteImport } from './routes/links'
 import { Route as CampaignsIndexRouteImport } from './routes/campaigns.index'
 import { Route as CampaignsCampaignIdRouteImport } from './routes/campaigns.$campaignId'
+import { Route as TraceIndexRouteImport } from './routes/trace.index'
+import { Route as TraceAttributionIdRouteImport } from './routes/trace.$attributionId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -46,6 +48,16 @@ const CampaignsCampaignIdRoute = CampaignsCampaignIdRouteImport.update({
   path: '/campaigns/$campaignId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TraceIndexRoute = TraceIndexRouteImport.update({
+  id: '/trace/',
+  path: '/trace/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TraceAttributionIdRoute = TraceAttributionIdRouteImport.update({
+  id: '/trace/$attributionId',
+  path: '/trace/$attributionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -53,7 +65,9 @@ export interface FileRoutesByFullPath {
   '/conversions': typeof ConversionsRoute
   '/links': typeof LinksRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
+  '/trace/$attributionId': typeof TraceAttributionIdRoute
   '/campaigns/': typeof CampaignsIndexRoute
+  '/trace/': typeof TraceIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -61,7 +75,9 @@ export interface FileRoutesByTo {
   '/conversions': typeof ConversionsRoute
   '/links': typeof LinksRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
+  '/trace/$attributionId': typeof TraceAttributionIdRoute
   '/campaigns': typeof CampaignsIndexRoute
+  '/trace': typeof TraceIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -70,7 +86,9 @@ export interface FileRoutesById {
   '/conversions': typeof ConversionsRoute
   '/links': typeof LinksRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
+  '/trace/$attributionId': typeof TraceAttributionIdRoute
   '/campaigns/': typeof CampaignsIndexRoute
+  '/trace/': typeof TraceIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -80,7 +98,9 @@ export interface FileRouteTypes {
     | '/conversions'
     | '/links'
     | '/campaigns/$campaignId'
+    | '/trace/$attributionId'
     | '/campaigns/'
+    | '/trace/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -88,7 +108,9 @@ export interface FileRouteTypes {
     | '/conversions'
     | '/links'
     | '/campaigns/$campaignId'
+    | '/trace/$attributionId'
     | '/campaigns'
+    | '/trace'
   id:
     | '__root__'
     | '/'
@@ -96,7 +118,9 @@ export interface FileRouteTypes {
     | '/conversions'
     | '/links'
     | '/campaigns/$campaignId'
+    | '/trace/$attributionId'
     | '/campaigns/'
+    | '/trace/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -105,7 +129,9 @@ export interface RootRouteChildren {
   ConversionsRoute: typeof ConversionsRoute
   LinksRoute: typeof LinksRoute
   CampaignsCampaignIdRoute: typeof CampaignsCampaignIdRoute
+  TraceAttributionIdRoute: typeof TraceAttributionIdRoute
   CampaignsIndexRoute: typeof CampaignsIndexRoute
+  TraceIndexRoute: typeof TraceIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -152,6 +178,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CampaignsCampaignIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/trace/': {
+      id: '/trace/'
+      path: '/trace'
+      fullPath: '/trace/'
+      preLoaderRoute: typeof TraceIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/trace/$attributionId': {
+      id: '/trace/$attributionId'
+      path: '/trace/$attributionId'
+      fullPath: '/trace/$attributionId'
+      preLoaderRoute: typeof TraceAttributionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -161,7 +201,9 @@ const rootRouteChildren: RootRouteChildren = {
   ConversionsRoute: ConversionsRoute,
   LinksRoute: LinksRoute,
   CampaignsCampaignIdRoute: CampaignsCampaignIdRoute,
+  TraceAttributionIdRoute: TraceAttributionIdRoute,
   CampaignsIndexRoute: CampaignsIndexRoute,
+  TraceIndexRoute: TraceIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

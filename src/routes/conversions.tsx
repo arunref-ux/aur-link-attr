@@ -18,7 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { attributionProvider, partnerProvider } from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
+import { partnerProvider } from "@/providers";
 import { APP_LABEL, CHANNEL_LABEL, formatCurrency, formatDate } from "@/lib/format";
 import type { AppName, AttributionMethod, Channel } from "@/domain/types";
 
@@ -58,7 +59,7 @@ function ConversionsPage() {
   });
   const { data: campaigns } = useQuery({
     queryKey: ["campaigns"],
-    queryFn: () => attributionProvider.listCampaigns(),
+    queryFn: () => attributionClient.listCampaigns(),
   });
   const { data: rows } = useQuery({
     queryKey: [
@@ -66,7 +67,7 @@ function ConversionsPage() {
       { query, partnerId, campaignId, channel, app, method, stage, periodDays },
     ],
     queryFn: () =>
-      attributionProvider.listAttributions({
+      attributionClient.listAttributions({
         query,
         partner_id: partnerId === "all" ? undefined : partnerId,
         campaign_id: campaignId === "all" ? undefined : campaignId,

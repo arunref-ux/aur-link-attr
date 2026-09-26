@@ -24,7 +24,8 @@ import {
 } from "@/components/ui/select";
 import type { AppName, AttributionLink, Channel, DestinationType } from "@/domain/types";
 import { APP_LABEL, CHANNEL_LABEL, DESTINATION_LABEL } from "@/lib/format";
-import { attributionProvider, demoProvider, partnerProvider } from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
+import { demoProvider, partnerProvider } from "@/providers";
 
 export function CreateLinkDialog({
   open,
@@ -54,7 +55,7 @@ export function CreateLinkDialog({
 
   const { data: campaigns } = useQuery({
     queryKey: ["campaigns"],
-    queryFn: () => attributionProvider.listCampaigns(),
+    queryFn: () => attributionClient.listCampaigns(),
   });
   const { data: partners } = useQuery({
     queryKey: ["partners", partnerQuery],
@@ -83,7 +84,7 @@ export function CreateLinkDialog({
       toast.error("Select a campaign first");
       return;
     }
-    const link = await attributionProvider.createLink({
+    const link = await attributionClient.createLink({
       campaign_id: campaignId,
       partner_id: partnerId === "none" ? null : partnerId,
       channel,
@@ -172,14 +173,14 @@ export function CreateLinkDialog({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void attributionProvider.shareLink(created.link_id, "share_sheet")}
+                onClick={() => void attributionClient.shareLink(created.link_id, "share_sheet")}
               >
                 <Share2 className="size-4" /> Share
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void attributionProvider.shareLink(created.link_id, "whatsapp")}
+                onClick={() => void attributionClient.shareLink(created.link_id, "whatsapp")}
                 asChild
               >
                 <a

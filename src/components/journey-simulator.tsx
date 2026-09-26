@@ -22,13 +22,8 @@ import {
 } from "@/components/ui/select";
 import type { Platform } from "@/domain/types";
 import { APP_LABEL, CHANNEL_LABEL, formatCurrency, formatTime } from "@/lib/format";
-import {
-  attributionProvider,
-  simulationProvider,
-  type LinkRow,
-  type SimulationState,
-  type SimulationStep,
-} from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
+import { simulationProvider, type LinkRow, type SimulationState, type SimulationStep } from "@/providers";
 
 const STEPS: { step: SimulationStep; label: string; button: string }[] = [
   { step: "CLICK", label: "Redirect", button: "Simulate Link Click" },
@@ -62,7 +57,7 @@ export function JourneySimulator({
   });
   const { data: events } = useQuery({
     queryKey: ["simulated-events", state?.attribution_id],
-    queryFn: () => attributionProvider.listEvents({ attribution_id: state!.attribution_id }),
+    queryFn: () => attributionClient.listEvents({ attribution_id: state!.attribution_id }),
     enabled: !!state,
   });
 

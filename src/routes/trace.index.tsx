@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { EmptyState, MethodBadge, PageHeader, Panel, StatusPill } from "@/components/bits";
 import { Input } from "@/components/ui/input";
-import { attributionProvider } from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
 import { APP_LABEL, CHANNEL_LABEL, formatDate } from "@/lib/format";
 
 export const Route = createFileRoute("/trace/")({
@@ -34,7 +34,7 @@ function TraceSearchPage() {
   const [query, setQuery] = useState("");
   const { data: results } = useQuery({
     queryKey: ["trace-search", query],
-    queryFn: () => attributionProvider.searchTraces(query),
+    queryFn: () => attributionClient.searchTraces(query),
   });
 
   return (

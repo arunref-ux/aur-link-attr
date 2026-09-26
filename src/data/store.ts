@@ -7,7 +7,9 @@
  */
 
 import type {
+  AcquisitionJourney,
   AcquisitionSession,
+  SignupBinding,
   Attribution,
   AttributionResolution,
   ConversionEvent,

@@ -320,7 +320,9 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
       pipeline.push({ stage: "Authenticate source", ok: false, detail: `credential is ${credential.source_system}, payload claims ${req.source_system}` });
       return reject(401, fail("UNAUTHORIZED_SOURCE", "Caller is not authenticated as the claimed source."));
     }
-    if (!allowed?.includes(req.source_system) || !req.source_system.startsWith(req.app) && allowed.length > 3) {
+    const appEvent = req.event_type === "INSTALL_REFERRER_RECEIVED" || req.event_type === "FIRST_OPEN";
+    const appMismatch = appEvent && req.source_system !== `${req.app}_${req.platform}`;
+    if (!allowed?.includes(req.source_system) || appMismatch) {
       pipeline.push({ stage: "Authenticate source", ok: false, detail: `${req.source_system} is not authoritative for ${req.event_type}` });
       return reject(403, fail("UNAUTHORIZED_SOURCE", `${req.source_system} may not submit ${req.event_type}.`));
     }
@@ -474,19 +476,7 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
         reason: attribution.resolution_reason,
       };
     };
-    const session = () =>
-      attribution?.click_id
-        ? (repo.listClicksForDeviceSession(attribution.session_id).length > 0
-            ? simulatedSessionFor(attribution.click_id)
-            : null)
-        : null;
-    const simulatedSessionFor = (clickId: string) =>
-      (repo.findSessionByToken as unknown) && storeSessionByClick(clickId);
-    const storeSessionByClick = (clickId: string) =>
-      sessionsByClick(clickId);
-    const sessionsByClick = (clickId: string) => repo.findSessionByClick?.(clickId) ?? null;
-    void session;
-    const asId = () => (attribution?.click_id ? repo.findSessionByClick?.(attribution.click_id)?.acquisition_session_id : null) ?? "—";
+    const asId = () => (attribution?.click_id ? repo.findSessionByClick(attribution.click_id)?.acquisition_session_id : null) ?? "—";
     const partnerHop = (): CorrelationHop => ({
       label: "Partner",
       value: attribution?.partner_id ? `${attribution.partner_id} · ${attribution.partner_name_snapshot ?? "unknown"}` : "none (unattributed)",
@@ -696,7 +686,9 @@ export function createSimulatedBackend(repo: AttributionRepository = simulatedRe
       return { outcome: "UNRESOLVED", event_ids: [], attribution_id: null, resolution: null, correlation: [] };
     }
     function applied(correlation: CorrelationHop[]): Applied {
-      pipeline.push({ stage: "Resolution Engine", ok: true, detail: pipeline.some((p) => p.stage === "Resolution Engine") ? "ran" : "not required for this fact" });
+      if (!pipeline.some((p) => p.stage === "Resolution Engine")) {
+        pipeline.push({ stage: "Resolution Engine", ok: true, detail: "not required — correlated to current attribution" });
+      }
       return { outcome: "APPLIED", event_ids: eventIds, attribution_id: attribution!.attribution_id, resolution: resolutionSummary(), correlation };
     }
   }

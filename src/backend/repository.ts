@@ -50,6 +50,7 @@ export interface AttributionRepository {
   insertSession(session: AcquisitionSession): void;
   findSessionByToken(token: string): AcquisitionSession | null;
   findSession(id: string): AcquisitionSession | null;
+  findSessionByClick(clickId: string): AcquisitionSession | null;
   /* installs */
   findInstall(installId: string): Install | null;
   insertInstall(install: Install): void;
@@ -126,6 +127,7 @@ export const simulatedRepository: AttributionRepository = {
   },
   findSessionByToken: (token) =>
     store.acquisitionSessions.find((s) => s.public_acquisition_token === token) ?? null,
+  findSessionByClick: (id) => store.acquisitionSessions.find((s) => s.click_id === id) ?? null,
   findSession: (id) =>
     store.acquisitionSessions.find((s) => s.acquisition_session_id === id) ?? null,
 

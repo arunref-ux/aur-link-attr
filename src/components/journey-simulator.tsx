@@ -5,6 +5,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { MethodBadge, SourceNote } from "@/components/bits";
+import { TechnicalJourney } from "@/components/technical-journey";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -49,6 +51,7 @@ export function JourneySimulator({
   const [platform, setPlatform] = useState<Platform>("ANDROID");
   const [state, setState] = useState<SimulationState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failNext, setFailNext] = useState(false);
 
   const { data: attribution } = useQuery({
     queryKey: ["simulated-attribution", state?.attribution_id],
@@ -70,10 +73,31 @@ export function JourneySimulator({
     setBusy(true);
     try {
       const current = state ?? (await simulationProvider.start(link.link_id, platform));
-      const updated = await simulationProvider.step(current, next!.step);
+      const updated = await simulationProvider.step(current, next!.step, { failBeforeCommit: failNext });
       setState(updated);
+      if (failNext) {
+        setFailNext(false);
+        toast.error("Event rolled back before commit — nothing was saved. Retry to apply it.");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Step failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retry() {
+    if (!state) return;
+    setBusy(true);
+    try {
+      const updated = await simulationProvider.retryLast(state);
+      const last = updated.last_request;
+      setState(
+        last && !updated.completed.includes(last.step) &&
+          (updated.technical.at(-1)?.status ?? 500) < 400
+          ? { ...updated, completed: [...updated.completed, last.step] }
+          : updated,
+      );
     } finally {
       setBusy(false);
     }
@@ -143,6 +167,27 @@ export function JourneySimulator({
           </p>
         ) : null}
 
+        <Tabs defaultValue="business">
+          <TabsList>
+            <TabsTrigger value="business">Business journey</TabsTrigger>
+            <TabsTrigger value="technical">Technical journey</TabsTrigger>
+          </TabsList>
+          <TabsContent value="technical" className="mt-3">
+            <TechnicalJourney
+              entries={state?.technical ?? []}
+              canRetry={!!state?.last_request}
+              busy={busy}
+              failNext={failNext}
+              onFailNextChange={setFailNext}
+              onRetry={() => void retry()}
+            />
+            {next && link.status === "ACTIVE" ? (
+              <Button className="mt-3" size="sm" disabled={busy} onClick={() => void run()}>
+                {next.button} <ArrowRight className="size-4" />
+              </Button>
+            ) : null}
+          </TabsContent>
+          <TabsContent value="business" className="mt-3">
         <ol className="space-y-2">
           {STEPS.map((s, i) => {
             const done = completed.includes(s.step);
@@ -190,6 +235,8 @@ export function JourneySimulator({
             );
           })}
         </ol>
+          </TabsContent>
+        </Tabs>
 
         {attribution ? (
           <div className="rounded-lg border border-border bg-muted/30 p-4">

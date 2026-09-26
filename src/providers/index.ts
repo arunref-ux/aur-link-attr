@@ -734,8 +734,18 @@ export interface TechnicalEntry {
 }
 
 type LastRequest =
-  | { kind: "FIRST_LAUNCH"; request: FirstLaunchRequest; credential: ServiceCredential; step: SimulationStep }
-  | { kind: "EVENT"; request: IngestEventRequest; credential: ServiceCredential; step: SimulationStep };
+  | {
+      kind: "FIRST_LAUNCH";
+      request: FirstLaunchRequest;
+      credential: ServiceCredential;
+      step: SimulationStep;
+    }
+  | {
+      kind: "EVENT";
+      request: IngestEventRequest;
+      credential: ServiceCredential;
+      step: SimulationStep;
+    };
 
 export interface SimulationState {
   /** Local simulator handle (the simulated phone). Not a backend identifier. */
@@ -810,7 +820,11 @@ export const simulationProvider = {
     };
   },
 
-  async step(state: SimulationState, step: SimulationStep, options: StepOptions = {}): Promise<SimulationState> {
+  async step(
+    state: SimulationState,
+    step: SimulationStep,
+    options: StepOptions = {},
+  ): Promise<SimulationState> {
     await latency();
     const link = store.links.find((l) => l.link_id === state.link_id)!;
     const device = devices.get(state.sim_id) ?? {};
@@ -915,7 +929,10 @@ export const simulationProvider = {
   },
 
   /** Re-submit the exact last request (same source_system + source_event_id + payload). */
-  async retryLast(state: SimulationState, mutate?: Record<string, unknown>): Promise<SimulationState> {
+  async retryLast(
+    state: SimulationState,
+    mutate?: Record<string, unknown>,
+  ): Promise<SimulationState> {
     await latency();
     const last = state.last_request;
     if (!last) return state;
@@ -933,12 +950,19 @@ export const simulationProvider = {
       }
       if (outcome.http.status < 400 && body.success) {
         const device = devices.get(state.sim_id);
-        if (device) device.signup_binding_token = body.signup_binding_token ?? device.signup_binding_token;
+        if (device)
+          device.signup_binding_token = body.signup_binding_token ?? device.signup_binding_token;
       }
     } else {
       const request = { ...last.request, ...(mutate ?? {}) } as IngestEventRequest;
       const outcome = simulatedBackend.ingestEvent(request, last.credential);
-      entry = technicalFor("RETRY", { request, credential: last.credential }, outcome, before, repo.counts());
+      entry = technicalFor(
+        "RETRY",
+        { request, credential: last.credential },
+        outcome,
+        before,
+        repo.counts(),
+      );
     }
     entry.title = `Retry — ${entry.title}`;
     notifyStore();
@@ -1001,8 +1025,9 @@ function buildRequest(
     };
   } else {
     const pv =
-      store.priceVersions.find((p) => store.plans.find((pl) => pl.plan_id === p.plan_id)?.app === app) ??
-      store.priceVersions[0]!;
+      store.priceVersions.find(
+        (p) => store.plans.find((pl) => pl.plan_id === p.plan_id)?.app === app,
+      ) ?? store.priceVersions[0]!;
     device.subscription_id = device.subscription_id ?? nextId("SUB", 5);
     request = {
       ...base,
@@ -1072,7 +1097,10 @@ function technicalFor(
     actor: ACTOR[src] ?? `${titleApp(src)} app (${src})`,
     request_line: `POST /api/v1/attribution/events`,
     handoff: t.startsWith("SIGNUP")
-      ? ["App carries opaque signup_binding_token into signup", "Signup Service submits it server-to-server"]
+      ? [
+          "App carries opaque signup_binding_token into signup",
+          "Signup Service submits it server-to-server",
+        ]
       : t.startsWith("TENANT")
         ? ["Tenant Service sends user / signup identity — no journey or session ID"]
         : undefined,

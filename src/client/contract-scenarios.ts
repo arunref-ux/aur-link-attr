@@ -81,7 +81,8 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
       const after = repo.counts();
       const a = journeyOf(c);
       return {
-        expected: "nothing exists before redirect; redirect creates AJ + AS + CLK + aur_at, no resolution",
+        expected:
+          "nothing exists before redirect; redirect creates AJ + AS + CLK + aur_at, no resolution",
         observed: `before: ${untouched ? "no rows" : "ROWS"}; journeys +${after.acquisition_journeys - before.acquisition_journeys}, sessions +${after.acquisition_sessions - before.acquisition_sessions}, clicks +${after.clicks - before.clicks}, resolutions +${after.resolutions - before.resolutions}; ${a.attribution_id}`,
         pass:
           untouched &&
@@ -98,9 +99,12 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
       });
       const body = out.http.body;
       const j = body.success ? repo.findJourney(body.acquisition_journey_id) : null;
-      const events = store.events.filter((e) => e.install_id === "INS-DIRECT-1").map((e) => e.event_type);
+      const events = store.events
+        .filter((e) => e.install_id === "INS-DIRECT-1")
+        .map((e) => e.event_type);
       return {
-        expected: "DIRECT_FIRST_LAUNCH journey; INSTALL_SIGNAL + FIRST_OPEN; UNATTRIBUTED; no link/click",
+        expected:
+          "DIRECT_FIRST_LAUNCH journey; INSTALL_SIGNAL + FIRST_OPEN; UNATTRIBUTED; no link/click",
         observed: `${j?.origin_type}; ${events.join(" + ")}; ${body.success ? body.attribution.method : "error"}; clicks +${repo.counts().clicks - before.clicks}`,
         pass:
           j?.origin_type === "DIRECT_FIRST_LAUNCH" &&
@@ -118,7 +122,8 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
       const body = lastBody<{ success: boolean; duplicate: boolean }>(r);
       const same = JSON.stringify(before) === JSON.stringify(repo.counts());
       return {
-        expected: "200, duplicate = true; no journey, install, FIRST_OPEN, resolution or metric added",
+        expected:
+          "200, duplicate = true; no journey, install, FIRST_OPEN, resolution or metric added",
         observed: `${lastStatus(r)} duplicate = ${body.duplicate}; tables ${same ? "unchanged" : "CHANGED"}`,
         pass: body.duplicate === true && same,
       };
@@ -152,10 +157,15 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
       });
       const later = simulatedBackend.firstLaunch(req, cred);
       const installs = store.installs.filter((i) => i.install_id === "INS-RACE-1").length;
-      const opens = store.events.filter((e) => e.event_type === "FIRST_OPEN" && e.install_id === "INS-RACE-1").length;
-      const res = store.resolutions.filter((r) => r.acquisition_journey_id === c.acquisition_journey_id).length;
+      const opens = store.events.filter(
+        (e) => e.event_type === "FIRST_OPEN" && e.install_id === "INS-RACE-1",
+      ).length;
+      const res = store.resolutions.filter(
+        (r) => r.acquisition_journey_id === c.acquisition_journey_id,
+      ).length;
       return {
-        expected: "twin during claim → 409 IN_PROGRESS; later retry replays; one install, one FIRST_OPEN, one resolution",
+        expected:
+          "twin during claim → 409 IN_PROGRESS; later retry replays; one install, one FIRST_OPEN, one resolution",
         observed: `A ${a.http.status}; in-flight twin ${twin}; later duplicate = ${later.http.body.success ? later.http.body.duplicate : "error"}; installs ${installs}, first opens ${opens}, resolutions ${res}`,
         pass:
           a.http.status === 200 &&
@@ -204,7 +214,9 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
     case "invalid-binding": {
       let s = await launched();
       const before = repo.counts();
-      s = await simulationProvider.step(s, "SIGNUP_STARTED", { signup_binding_token: "sbt_forged" });
+      s = await simulationProvider.step(s, "SIGNUP_STARTED", {
+        signup_binding_token: "sbt_forged",
+      });
       const body = lastBody<{ error?: { code: string } }>(s);
       return {
         expected: "422 SIGNUP_BINDING_INVALID; no journey association",
@@ -242,14 +254,18 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
       return {
         expected: "200 duplicate = true; nothing written",
         observed: `${lastStatus(r)} duplicate = ${body.data?.duplicate}`,
-        pass: body.data?.duplicate === true && JSON.stringify(before) === JSON.stringify(repo.counts()),
+        pass:
+          body.data?.duplicate === true && JSON.stringify(before) === JSON.stringify(repo.counts()),
       };
     }
     case "tenant-correlation": {
       let s = await launched();
       s = await simulationProvider.step(s, "SIGNUP_COMPLETED");
       s = await simulationProvider.step(s, "TENANT_CREATED");
-      const req = s.last_request!.request as { acquisition_journey_id?: string; acquisition_session_id?: string };
+      const req = s.last_request!.request as {
+        acquisition_journey_id?: string;
+        acquisition_session_id?: string;
+      };
       const j = repo.findJourney(s.acquisition_journey_id!)!;
       return {
         expected: "tenant attached via signup/user identity; request carries no journey/session ID",
@@ -302,25 +318,42 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
       return {
         expected: "LINK_DISABLED; no journey, click or session",
         observed: `${out.error?.code}; rows ${JSON.stringify(repo.counts()) === JSON.stringify(before) ? "unchanged" : "CHANGED"}`,
-        pass: out.error?.code === "LINK_DISABLED" && JSON.stringify(repo.counts()) === JSON.stringify(before),
+        pass:
+          out.error?.code === "LINK_DISABLED" &&
+          JSON.stringify(repo.counts()) === JSON.stringify(before),
       };
     }
     case "campaign-inactive": {
       const campaign = store.campaigns.find((c) => c.status === "PAUSED")!;
-      const link = store.links.find((l) => l.campaign_id === campaign.campaign_id && l.status === "ACTIVE");
-      if (!link) return { expected: "CAMPAIGN_INACTIVE", observed: "no active link on a paused campaign", pass: false };
+      const link = store.links.find(
+        (l) => l.campaign_id === campaign.campaign_id && l.status === "ACTIVE",
+      );
+      if (!link)
+        return {
+          expected: "CAMPAIGN_INACTIVE",
+          observed: "no active link on a paused campaign",
+          pass: false,
+        };
       const before = repo.counts();
       const out = simulatedBackend.redirect({ token: link.token, platform: "ANDROID" });
       return {
         expected: "CAMPAIGN_INACTIVE (evaluated at request time); no journey or session",
         observed: `${out.error?.code}; sessions +${repo.counts().acquisition_sessions - before.acquisition_sessions}`,
-        pass: out.error?.code === "CAMPAIGN_INACTIVE" && JSON.stringify(repo.counts()) === JSON.stringify(before),
+        pass:
+          out.error?.code === "CAMPAIGN_INACTIVE" &&
+          JSON.stringify(repo.counts()) === JSON.stringify(before),
       };
     }
     case "unknown-acq-token": {
       const c = await clicked();
-      const s = await simulationProvider.step(c, "FIRST_LAUNCH", { acquisition_token: "not-a-real-token" });
-      const body = lastBody<{ acquisition_journey_id: string; attribution: { method: string }; warnings: { code: string }[] }>(s);
+      const s = await simulationProvider.step(c, "FIRST_LAUNCH", {
+        acquisition_token: "not-a-real-token",
+      });
+      const body = lastBody<{
+        acquisition_journey_id: string;
+        attribution: { method: string };
+        warnings: { code: string }[];
+      }>(s);
       const j = repo.findJourney(body.acquisition_journey_id)!;
       const linkJourney = journeyOf(c);
       return {
@@ -334,8 +367,12 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
       };
     }
     case "expired-window": {
-      const later = new Date(Date.now() + (store.rules.click_attribution_window_days + 1) * 86_400_000).toISOString();
-      const s = await simulationProvider.step(await clicked(), "FIRST_LAUNCH", { occurred_at: later });
+      const later = new Date(
+        Date.now() + (store.rules.click_attribution_window_days + 1) * 86_400_000,
+      ).toISOString();
+      const s = await simulationProvider.step(await clicked(), "FIRST_LAUNCH", {
+        occurred_at: later,
+      });
       const a = journeyOf(s);
       return {
         expected: "UNATTRIBUTED — click outside the configured window",
@@ -348,7 +385,8 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
       const snap = JSON.stringify(repo.counts());
       const attrBefore = JSON.stringify(journeyOf(s));
       s = await simulationProvider.step(s, "FIRST_LAUNCH", { failBeforeCommit: true });
-      const same = JSON.stringify(repo.counts()) === snap && JSON.stringify(journeyOf(s)) === attrBefore;
+      const same =
+        JSON.stringify(repo.counts()) === snap && JSON.stringify(journeyOf(s)) === attrBefore;
       const retry = await simulationProvider.retryLast(s);
       const retryBody = lastBody<{ duplicate?: boolean }>(retry);
       return {
@@ -359,7 +397,12 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
     }
     case "server-authority": {
       const s = await simulationProvider.step(await clicked(), "FIRST_LAUNCH", {
-        untrusted: { partner_id: "P-118", attribution_method: "CLAIMED", link_id: "LNK-9999", acquisition_journey_id: "AJ-FAKE" },
+        untrusted: {
+          partner_id: "P-118",
+          attribution_method: "CLAIMED",
+          link_id: "LNK-9999",
+          acquisition_journey_id: "AJ-FAKE",
+        },
       });
       const a = journeyOf(s);
       const body = lastBody<{ ignored_fields: string[] }>(s);
@@ -415,7 +458,13 @@ export async function runScenario(id: ScenarioId): Promise<ScenarioResult> {
   try {
     return { id, title: title(id), ...(await run(id)) };
   } catch (err) {
-    return { id, title: title(id), expected: "—", observed: err instanceof Error ? err.message : "failed", pass: false };
+    return {
+      id,
+      title: title(id),
+      expected: "—",
+      observed: err instanceof Error ? err.message : "failed",
+      pass: false,
+    };
   } finally {
     repo.restore(snap);
   }

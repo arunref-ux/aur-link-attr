@@ -50,9 +50,9 @@ describe("V1.2 — Idempotency", () => {
 });
 
 describe("V1.2 — Signup / tenant binding", () => {
-  it("valid binding token attaches signup to the correct journey", () => scenario("signup-binding"));
-  it("invalid binding token → no arbitrary journey association", () =>
-    scenario("invalid-binding"));
+  it("valid binding token attaches signup to the correct journey", () =>
+    scenario("signup-binding"));
+  it("invalid binding token → no arbitrary journey association", () => scenario("invalid-binding"));
   it("reused binding cannot attach an unrelated second signup", () => scenario("reused-binding"));
   it("exact retry of same signup is idempotent", () => scenario("signup-retry"));
   it("tenant resolves through trusted signup/user association", () =>

@@ -132,7 +132,9 @@ describe("Simulator behaviour", () => {
     let first = await simulationProvider.start(link.link_id, "ANDROID");
     first = await simulationProvider.step(first, "CLICK");
     first = await simulationProvider.step(first, "FIRST_LAUNCH");
-    const before = store.attributions.find((a) => a.attribution_id === first.acquisition_journey_id!)!;
+    const before = store.attributions.find(
+      (a) => a.attribution_id === first.acquisition_journey_id!,
+    )!;
     expect(before.partner_id).toBe("P-104");
 
     await attributionProvider.setLinkStatus(link.link_id, "DISABLED");

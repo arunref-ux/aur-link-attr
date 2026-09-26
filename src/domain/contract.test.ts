@@ -14,7 +14,7 @@ describe("Redirect contract", () => {
     const out = simulatedBackend.redirect({
       token: link.token,
       platform: "ANDROID",
-          });
+    });
     expect(out.error).toBeNull();
     expect(repo.counts().acquisition_sessions).toBe(before.acquisition_sessions + 1);
     expect(out.referrer).not.toContain("P-104");
@@ -26,7 +26,7 @@ describe("Redirect contract", () => {
     const out = simulatedBackend.redirect({
       token: link.token,
       platform: "ANDROID",
-          });
+    });
     expect(out.error?.code).toBe("LINK_DISABLED");
     expect(repo.counts().clicks).toBe(before.clicks);
     expect(repo.counts().acquisition_sessions).toBe(before.acquisition_sessions);
@@ -36,7 +36,7 @@ describe("Redirect contract", () => {
     const out = simulatedBackend.redirect({
       token: "NOPE000",
       platform: "ANDROID",
-          });
+    });
     expect(out.http.status).toBe(404);
     expect(out.error?.code).toBe("INVALID_TOKEN");
     expect(out.location).toBe("https://aurumi.ai");
@@ -97,7 +97,9 @@ describe("Ingestion contract", () => {
     expect(s.technical.at(-1)!.status).toBe(500);
     expect(repo.counts()).toEqual(counts);
     expect(
-      JSON.stringify(store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!)),
+      JSON.stringify(
+        store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!),
+      ),
     ).toBe(attr);
     expect(s.completed).not.toContain("FIRST_LAUNCH");
   });

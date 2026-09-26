@@ -49,7 +49,10 @@ export function ProductionContract() {
           ))}
         </dl>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <List label="Production architecture requirement" items={IMPLEMENTATION_NOTE.production} />
+          <List
+            label="Production architecture requirement"
+            items={IMPLEMENTATION_NOTE.production}
+          />
           <List
             label="Simulation implementation detail (do not reproduce)"
             items={IMPLEMENTATION_NOTE.simulation_only}
@@ -178,7 +181,10 @@ export function ProductionContract() {
         </Panel>
       </div>
 
-      <Panel title="Transaction contracts" subtitle="Each operation is atomic; any failure rolls back">
+      <Panel
+        title="Transaction contracts"
+        subtitle="Each operation is atomic; any failure rolls back"
+      >
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {TRANSACTIONS.map((t) => (
             <div key={t.name}>

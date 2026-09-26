@@ -54,7 +54,12 @@ export interface AttributionRepository {
   /* journeys (canonical subject) + read model */
   insertJourney(journey: AcquisitionJourney): void;
   findJourney(id: string): AcquisitionJourney | null;
-  findJourneyBy(q: { user_id?: string | undefined; signup_id?: string | undefined; tenant_id?: string | undefined; install_id?: string | undefined }): AcquisitionJourney | null;
+  findJourneyBy(q: {
+    user_id?: string | undefined;
+    signup_id?: string | undefined;
+    tenant_id?: string | undefined;
+    install_id?: string | undefined;
+  }): AcquisitionJourney | null;
   insertAttribution(attribution: Attribution): void;
   /* signup bindings */
   insertBinding(binding: SignupBinding): void;
@@ -157,11 +162,14 @@ export const simulatedRepository: AttributionRepository = {
     [...store.acquisitionSessions].reverse().find((s) => s.device_session_id === hint) ?? null,
   listClicksForJourney: (id) => store.clicks.filter((c) => c.acquisition_journey_id === id),
   insertJourney: (j) => {
-    if (store.acquisitionJourneys.some((x) => x.acquisition_journey_id === j.acquisition_journey_id))
+    if (
+      store.acquisitionJourneys.some((x) => x.acquisition_journey_id === j.acquisition_journey_id)
+    )
       throw new Error("UNIQUE violation: acquisition_journeys.id");
     store.acquisitionJourneys.push(j);
   },
-  findJourney: (id) => store.acquisitionJourneys.find((j) => j.acquisition_journey_id === id) ?? null,
+  findJourney: (id) =>
+    store.acquisitionJourneys.find((j) => j.acquisition_journey_id === id) ?? null,
   findJourneyBy: (q) =>
     store.acquisitionJourneys.find(
       (j) =>
@@ -195,7 +203,8 @@ export const simulatedRepository: AttributionRepository = {
   claimIdempotency: (record) => {
     if (
       store.idempotency.some(
-        (r) => r.source_system === record.source_system && r.source_event_id === record.source_event_id,
+        (r) =>
+          r.source_system === record.source_system && r.source_event_id === record.source_event_id,
       )
     )
       throw new Error("UNIQUE violation: idempotency_records(source_system, source_event_id)");

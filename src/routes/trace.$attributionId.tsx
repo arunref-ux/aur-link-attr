@@ -195,7 +195,7 @@ function EventCard({
   attributionAmount,
 }: {
   event: AttributionEvent;
-  attributionAmount?: number;
+  attributionAmount?: number | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [raw, setRaw] = useState(false);

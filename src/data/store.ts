@@ -524,12 +524,12 @@ interface JourneySeed {
   tenant_name: string;
   email: string;
   reach: JourneyStage;
-  method?: AttributionMethod;
-  price_version_id?: string;
-  unattributed?: boolean;
-  claimed_code?: string;
-  extraClicks?: number;
-  conflictWithLinkId?: string;
+  method?: AttributionMethod | undefined;
+  price_version_id?: string | undefined;
+  unattributed?: boolean | undefined;
+  claimed_code?: string | undefined;
+  extraClicks?: number | undefined;
+  conflictWithLinkId?: string | undefined;
   overrideTo?: { partner_id: string; reason: string; actor: string };
 }
 

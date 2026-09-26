@@ -228,7 +228,8 @@ export interface Attribution {
   tenant_id: string | null;
   tenant_name: string | null;
   contact_email: string | null;
-  channel: Channel;
+  /** Null when the journey began without an acquisition link. */
+  channel: Channel | null;
   app: AppName;
   platform: Platform;
   attribution_method: AttributionMethod;

@@ -91,7 +91,7 @@ function TraceSearchPage() {
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>{APP_LABEL[a.app]}</span>
                   <span>·</span>
-                  <span>{CHANNEL_LABEL[a.channel]}</span>
+                  <span>{a.channel ? CHANNEL_LABEL[a.channel] : "Direct / organic"}</span>
                   <span>·</span>
                   <span>{a.partner_name_snapshot ?? "No partner"}</span>
                   <span>·</span>

@@ -15,3 +15,5 @@
 - Attribution state lives in the in-memory store `src/data/store.ts` with deterministic seeds; attribution resolution rules stay in `src/lib/attribution-rules.ts` so the configured rule set, not UI code, decides outcomes.
 - Commission amounts are never computed or displayed; this system records commission-eligible facts only, because commission logic is owned externally.
 - Appearance is controlled by the root `dark` class and the persisted `aurumi-theme` preference, so system, dark, and light modes stay consistent across every screen.
+- Every attribution outcome (seeds, journey tester, previews) comes from `resolveAttribution` in `src/lib/attribution-rules.ts`; simulation only records facts (clicks, install signals, claims) and applies the result via `applyResolution` — so configured rules, not simulation code, decide winners and reasons.
+- Journeys may start without a link: partner, campaign, link, click and channel are all nullable on an attribution, because unattributed/organic customers are a valid state.

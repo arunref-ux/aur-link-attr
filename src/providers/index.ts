@@ -35,6 +35,9 @@ import {
   redirectTargetFor,
   SIMULATED_NOW,
   store,
+  applyResolution,
+  installSignalFor,
+  partnerNameOf,
 } from "@/data/store";
 import { resolveAttribution as runRules } from "@/lib/attribution-rules";
 

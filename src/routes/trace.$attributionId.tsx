@@ -211,9 +211,9 @@ function EventCard({
           </span>
           <div>
             <p className="font-display text-sm font-semibold text-foreground">
-              {event.event_type}
+              {EVENT_LABEL[event.event_type]}
             </p>
-            <p className="text-xs text-muted-foreground">{EVENT_LABEL[event.event_type]}</p>
+            <p className="mono-token text-xs text-muted-foreground">{event.event_type}</p>
             {highlights.length > 0 ? (
               <dl className="mt-2.5 grid gap-2 sm:grid-cols-2">
                 {highlights.map(([label, value]) => (

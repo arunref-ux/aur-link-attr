@@ -704,7 +704,9 @@ export function sessionForClick(clickId: string | null): AcquisitionSession | un
   if (!clickId) return undefined;
   const click = store.clicks.find((c) => c.click_id === clickId);
   return click?.acquisition_session_id
-    ? store.acquisitionSessions.find((s) => s.acquisition_session_id === click.acquisition_session_id)
+    ? store.acquisitionSessions.find(
+        (s) => s.acquisition_session_id === click.acquisition_session_id,
+      )
     : undefined;
 }
 

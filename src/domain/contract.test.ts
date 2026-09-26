@@ -14,7 +14,6 @@ describe("Redirect contract", () => {
     const out = simulatedBackend.redirect({
       token: link.token,
       platform: "ANDROID",
-      device_session_id: "SES-T2",
     });
     expect(out.error).toBeNull();
     expect(repo.counts().acquisition_sessions).toBe(before.acquisition_sessions + 1);
@@ -27,7 +26,6 @@ describe("Redirect contract", () => {
     const out = simulatedBackend.redirect({
       token: link.token,
       platform: "ANDROID",
-      device_session_id: "SES-T3",
     });
     expect(out.error?.code).toBe("LINK_DISABLED");
     expect(repo.counts().clicks).toBe(before.clicks);
@@ -38,7 +36,6 @@ describe("Redirect contract", () => {
     const out = simulatedBackend.redirect({
       token: "NOPE000",
       platform: "ANDROID",
-      device_session_id: "SES-T4",
     });
     expect(out.http.status).toBe(404);
     expect(out.error?.code).toBe("INVALID_TOKEN");
@@ -50,17 +47,19 @@ describe("Ingestion contract", () => {
   it("same source_system + source_event_id twice → one event, duplicate = true", async () => {
     let s = await simulationProvider.start("LNK-0001", "ANDROID");
     s = await simulationProvider.step(s, "CLICK");
-    s = await simulationProvider.step(s, "INSTALL");
+    s = await simulationProvider.step(s, "FIRST_LAUNCH");
     const before = repo.counts();
     s = await simulationProvider.retryLast(s);
     expect(repo.counts()).toEqual(before);
-    const body = s.technical.at(-1)!.response as { success: boolean; data: { duplicate: boolean } };
+    const body = s.technical.at(-1)!.response as { success: boolean; duplicate: boolean };
     expect(body.success).toBe(true);
-    expect(body.data.duplicate).toBe(true);
+    expect(body.duplicate).toBe(true);
     const req = s.last_request!.request;
     expect(
       store.events.filter(
-        (e) => e.source_system === req.source_system && e.source_event_id === req.source_event_id,
+        (e) =>
+          e.source_system === req.source_system &&
+          e.source_event_id === `${req.source_event_id}:first_open`,
       ),
     ).toHaveLength(1);
   });
@@ -68,16 +67,21 @@ describe("Ingestion contract", () => {
   it("valid acquisition token resolves the correct session; unknown token does not fabricate attribution", async () => {
     let s = await simulationProvider.start("LNK-0001", "ANDROID");
     s = await simulationProvider.step(s, "CLICK");
-    const session = store.acquisitionSessions.find((x) => x.click_id === s.click!.click_id)!;
-    s = await simulationProvider.step(s, "INSTALL");
-    const a = store.attributions.find((x) => x.attribution_id === s.attribution_id)!;
-    expect(a.click_id).toBe(session.click_id);
+    const session = store.acquisitionSessions.find(
+      (x) => x.acquisition_session_id === s.click!.acquisition_session_id,
+    )!;
+    s = await simulationProvider.step(s, "FIRST_LAUNCH");
+    const a = store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!)!;
+    expect(a.click_id).toBe(s.click!.click_id);
+    expect(session.acquisition_journey_id).toBe(a.attribution_id);
     expect(a.attribution_method).toBe("DETERMINISTIC");
 
     let u = await simulationProvider.start("LNK-0001", "ANDROID");
     u = await simulationProvider.step(u, "CLICK");
-    u = await simulationProvider.step(u, "INSTALL", { acquisition_token: "unknown-token" });
-    const ua = store.attributions.find((x) => x.attribution_id === u.attribution_id)!;
+    const linkJourney = u.acquisition_journey_id!;
+    u = await simulationProvider.step(u, "FIRST_LAUNCH", { acquisition_token: "unknown-token" });
+    const ua = store.attributions.find((x) => x.attribution_id === linkJourney)!;
+    expect(u.acquisition_journey_id).not.toBe(linkJourney);
     expect(ua.partner_id).toBeNull();
     expect(ua.install_id).toBeNull();
   });
@@ -87,25 +91,27 @@ describe("Ingestion contract", () => {
     s = await simulationProvider.step(s, "CLICK");
     const counts = repo.counts();
     const attr = JSON.stringify(
-      store.attributions.find((x) => x.attribution_id === s.attribution_id),
+      store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!),
     );
-    s = await simulationProvider.step(s, "INSTALL", { failBeforeCommit: true });
+    s = await simulationProvider.step(s, "FIRST_LAUNCH", { failBeforeCommit: true });
     expect(s.technical.at(-1)!.status).toBe(500);
     expect(repo.counts()).toEqual(counts);
     expect(
-      JSON.stringify(store.attributions.find((x) => x.attribution_id === s.attribution_id)),
+      JSON.stringify(
+        store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!),
+      ),
     ).toBe(attr);
-    expect(s.completed).not.toContain("INSTALL");
+    expect(s.completed).not.toContain("FIRST_LAUNCH");
   });
 
   it("client-supplied partner_id never overrides the server-resolved partner", async () => {
     let s = await simulationProvider.start("LNK-0001", "ANDROID");
     s = await simulationProvider.step(s, "CLICK");
-    s = await simulationProvider.step(s, "INSTALL", { untrusted: { partner_id: "P-118" } });
-    const a = store.attributions.find((x) => x.attribution_id === s.attribution_id)!;
+    s = await simulationProvider.step(s, "FIRST_LAUNCH", { untrusted: { partner_id: "P-118" } });
+    const a = store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!)!;
     expect(a.partner_id).toBe("P-104");
-    const body = s.technical.at(-1)!.response as { data: { ignored_fields: string[] } };
-    expect(body.data.ignored_fields).toContain("partner_id");
+    const body = s.technical.at(-1)!.response as { ignored_fields: string[] };
+    expect(body.ignored_fields).toContain("partner_id");
   });
 });
 
@@ -119,8 +125,8 @@ describe("Rules versioning", () => {
     expect(store.rulesVersion).not.toBe(oldVersion);
     let s = await simulationProvider.start("LNK-0001", "ANDROID");
     s = await simulationProvider.step(s, "CLICK");
-    s = await simulationProvider.step(s, "INSTALL");
-    const fresh = store.attributions.find((a) => a.attribution_id === s.attribution_id)!;
+    s = await simulationProvider.step(s, "FIRST_LAUNCH");
+    const fresh = store.attributions.find((a) => a.attribution_id === s.acquisition_journey_id!)!;
     expect(fresh.rules_version).toBe(store.rulesVersion);
     expect(seeded.rules_version).toBe(oldVersion);
     expect(seeded.partner_id).toBe("P-145");

@@ -34,7 +34,11 @@ import {
 
 const STEPS: { step: SimulationStep; label: string; button: string }[] = [
   { step: "CLICK", label: "Redirect", button: "Simulate Link Click" },
-  { step: "FIRST_LAUNCH", label: "First launch (install + first open)", button: "Simulate First Launch" },
+  {
+    step: "FIRST_LAUNCH",
+    label: "First launch (install + first open)",
+    button: "Simulate First Launch",
+  },
   { step: "SIGNUP_STARTED", label: "Signup started", button: "Start Signup" },
   { step: "SIGNUP_COMPLETED", label: "Signup completed", button: "Complete Signup" },
   { step: "TENANT_CREATED", label: "Tenant", button: "Create Tenant" },

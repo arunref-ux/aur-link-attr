@@ -5,7 +5,11 @@ import { useState } from "react";
 import { Panel } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import {
+  CONCURRENCY,
+  CONTRACT_FAQ,
   CONSTRAINTS,
+  FOREIGN_KEYS,
+  IMPLEMENTATION_NOTE,
   ENDPOINTS,
   ERROR_CODES,
   EXTERNAL_REFERENCES,
@@ -16,7 +20,7 @@ import {
   SOURCE_AUTHORITY_DOC,
   SYSTEM_FLOW,
   TABLES,
-  TRANSACTION_CONTRACT,
+  TRANSACTIONS,
   TRUST,
 } from "@/backend/contract-docs";
 import { attributionClient } from "@/client/attribution-client";
@@ -35,6 +39,27 @@ export function ProductionContract() {
 
   return (
     <div className="space-y-6">
+      <Panel title="Contract at a glance" subtitle="V1.2 — the answers engineers implement against">
+        <dl className="grid gap-3 sm:grid-cols-2">
+          {CONTRACT_FAQ.map((f) => (
+            <div key={f.q} className="rounded-md border border-border p-3">
+              <dt className="text-xs text-muted-foreground">{f.q}</dt>
+              <dd className="mt-1 text-sm font-medium text-foreground">{f.a}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <List
+            label="Production architecture requirement"
+            items={IMPLEMENTATION_NOTE.production}
+          />
+          <List
+            label="Simulation implementation detail (do not reproduce)"
+            items={IMPLEMENTATION_NOTE.simulation_only}
+          />
+        </div>
+      </Panel>
+
       <Panel
         title="Production system flow"
         subtitle="What the real Aurumi services and Android apps implement"
@@ -133,6 +158,8 @@ export function ProductionContract() {
           <div>
             <p className="label-eyebrow mb-2">Relationships</p>
             <pre className={pre}>{RELATIONSHIPS}</pre>
+            <p className="label-eyebrow mt-4 mb-2">Foreign keys</p>
+            <pre className={pre}>{FOREIGN_KEYS.join("\n")}</pre>
             <p className="label-eyebrow mt-4 mb-2">External references</p>
             <p className="text-xs text-muted-foreground">
               {EXTERNAL_REFERENCES.join(", ")} — owned by other systems.
@@ -145,10 +172,28 @@ export function ProductionContract() {
         <Panel title="Constraints & indexes">
           <pre className={pre}>{CONSTRAINTS.join("\n")}</pre>
         </Panel>
-        <Panel title="Transaction contract" subtitle="Each accepted event is atomic">
-          <pre className={pre}>{TRANSACTION_CONTRACT}</pre>
+        <Panel title="Concurrency & idempotency" subtitle="Required production outcomes">
+          <ul className="list-disc space-y-1.5 pl-5 text-sm text-foreground">
+            {CONCURRENCY.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
         </Panel>
       </div>
+
+      <Panel
+        title="Transaction contracts"
+        subtitle="Each operation is atomic; any failure rolls back"
+      >
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {TRANSACTIONS.map((t) => (
+            <div key={t.name}>
+              <p className="label-eyebrow mb-1">{t.name}</p>
+              <pre className={pre}>{t.body}</pre>
+            </div>
+          ))}
+        </div>
+      </Panel>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Panel
@@ -208,9 +253,9 @@ export function ProductionContract() {
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Duplicate retry, unknown/disabled link, inactive campaign, unknown acquisition token,
-            expired window, fail before commit, client-supplied partner, unauthorized source,
-            partner unavailable.
+            Journey lifecycle, direct first launch, exact retry vs conflicting key reuse, concurrent
+            requests, business uniqueness, signup bindings, tenant correlation, stale override, plus
+            the V1.1 redirect, trust and rollback cases.
           </p>
         )}
       </Panel>

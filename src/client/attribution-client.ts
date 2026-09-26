@@ -127,7 +127,9 @@ export const simulatedAttributionClient: AttributionClient = {
     const a = store.attributions.find((x) => x.attribution_id === id);
     return clone(
       a?.acquisition_journey_id
-        ? store.acquisitionSessions.filter((s) => s.acquisition_journey_id === a.acquisition_journey_id)
+        ? store.acquisitionSessions.filter(
+            (s) => s.acquisition_journey_id === a.acquisition_journey_id,
+          )
         : [],
     );
   },

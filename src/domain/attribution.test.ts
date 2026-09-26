@@ -129,10 +129,12 @@ describe("Simulator behaviour", () => {
       app: "AURA",
       destination: "SIGNUP",
     });
-    const first = await simulationProvider.start(link.link_id, "ANDROID");
-    await simulationProvider.step(first, "CLICK");
-    await simulationProvider.step(first, "INSTALL");
-    const before = store.attributions.find((a) => a.attribution_id === first.attribution_id)!;
+    let first = await simulationProvider.start(link.link_id, "ANDROID");
+    first = await simulationProvider.step(first, "CLICK");
+    first = await simulationProvider.step(first, "FIRST_LAUNCH");
+    const before = store.attributions.find(
+      (a) => a.attribution_id === first.acquisition_journey_id!,
+    )!;
     expect(before.partner_id).toBe("P-104");
 
     await attributionProvider.setLinkStatus(link.link_id, "DISABLED");
@@ -157,10 +159,10 @@ describe("Simulator behaviour", () => {
   });
 
   it("G — override records A → B while the original click stays A", async () => {
-    const s = await simulationProvider.start("LNK-0001", "ANDROID");
-    await simulationProvider.step(s, "CLICK");
-    await simulationProvider.step(s, "INSTALL");
-    const a = store.attributions.find((x) => x.attribution_id === s.attribution_id)!;
+    let s = await simulationProvider.start("LNK-0001", "ANDROID");
+    s = await simulationProvider.step(s, "CLICK");
+    s = await simulationProvider.step(s, "FIRST_LAUNCH");
+    const a = store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!)!;
     const originalClick = { ...store.clicks.find((c) => c.click_id === a.click_id)! };
     expect(a.partner_id).toBe("P-104");
     await attributionProvider.overrideAttribution({
@@ -168,6 +170,7 @@ describe("Simulator behaviour", () => {
       to_partner_id: "P-118",
       reason: "test",
       actor: "tester",
+      expected_current_resolution_id: a.current_resolution_id ?? null,
     });
     expect(store.clicks.find((c) => c.click_id === originalClick.click_id)).toEqual(originalClick);
     expect(a.overrides.at(-1)).toMatchObject({ from_partner_id: "P-104", to_partner_id: "P-118" });
@@ -179,9 +182,8 @@ describe("Simulator behaviour", () => {
     let s = await simulationProvider.start("LNK-0002", "ANDROID");
     for (const step of [
       "CLICK",
-      "INSTALL",
-      "INSTALL",
-      "FIRST_OPEN",
+      "FIRST_LAUNCH",
+      "FIRST_LAUNCH",
       "SIGNUP_STARTED",
       "SIGNUP_COMPLETED",
       "TENANT_CREATED",
@@ -193,7 +195,7 @@ describe("Simulator behaviour", () => {
     ] as const) {
       s = await simulationProvider.step(s, step);
     }
-    const a = store.attributions.find((x) => x.attribution_id === s.attribution_id)!;
+    const a = store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!)!;
     const events = store.events.filter((e) => e.attribution_id === a.attribution_id);
     expect(store.installs.filter((i) => i.session_id === a.session_id)).toHaveLength(1);
     expect(events.filter((e) => e.event_type === "TENANT_CREATED")).toHaveLength(1);
@@ -206,20 +208,21 @@ describe("Simulator behaviour", () => {
         .count;
     const start = await firstOpens();
     let s = await simulationProvider.start("LNK-0003", "ANDROID");
-    for (const step of ["CLICK", "INSTALL", "FIRST_OPEN"] as const)
+    for (const step of ["CLICK", "FIRST_LAUNCH"] as const)
       s = await simulationProvider.step(s, step);
     expect(await firstOpens()).toBe(start + 1);
     let t = await simulationProvider.start("LNK-0003", "ANDROID");
     for (const step of [
       "CLICK",
-      "INSTALL",
+      "FIRST_LAUNCH",
       "SIGNUP_STARTED",
       "SIGNUP_COMPLETED",
       "TENANT_CREATED",
     ] as const) {
       t = await simulationProvider.step(t, step);
     }
-    expect(await firstOpens()).toBe(start + 1);
+    // One first launch = one FIRST_OPEN; signup/tenant never add first opens.
+    expect(await firstOpens()).toBe(start + 2);
   });
 
   it("IDs and tokens never collide with seeded data", async () => {

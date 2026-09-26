@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ConfigurationRouteImport } from './routes/configuration'
+import { Route as ConversionsRouteImport } from './routes/conversions'
+import { Route as LinksRouteImport } from './routes/links'
 import { Route as CampaignsIndexRouteImport } from './routes/campaigns.index'
 import { Route as CampaignsCampaignIdRouteImport } from './routes/campaigns.$campaignId'
 
@@ -22,6 +24,16 @@ const IndexRoute = IndexRouteImport.update({
 const ConfigurationRoute = ConfigurationRouteImport.update({
   id: '/configuration',
   path: '/configuration',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConversionsRoute = ConversionsRouteImport.update({
+  id: '/conversions',
+  path: '/conversions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LinksRoute = LinksRouteImport.update({
+  id: '/links',
+  path: '/links',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CampaignsIndexRoute = CampaignsIndexRouteImport.update({
@@ -38,12 +50,16 @@ const CampaignsCampaignIdRoute = CampaignsCampaignIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/configuration': typeof ConfigurationRoute
+  '/conversions': typeof ConversionsRoute
+  '/links': typeof LinksRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
   '/campaigns/': typeof CampaignsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/configuration': typeof ConfigurationRoute
+  '/conversions': typeof ConversionsRoute
+  '/links': typeof LinksRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
   '/campaigns': typeof CampaignsIndexRoute
 }
@@ -51,18 +67,34 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/configuration': typeof ConfigurationRoute
+  '/conversions': typeof ConversionsRoute
+  '/links': typeof LinksRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
   '/campaigns/': typeof CampaignsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/configuration' | '/campaigns/$campaignId' | '/campaigns/'
+  fullPaths:
+    | '/'
+    | '/configuration'
+    | '/conversions'
+    | '/links'
+    | '/campaigns/$campaignId'
+    | '/campaigns/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/configuration' | '/campaigns/$campaignId' | '/campaigns'
+  to:
+    | '/'
+    | '/configuration'
+    | '/conversions'
+    | '/links'
+    | '/campaigns/$campaignId'
+    | '/campaigns'
   id:
     | '__root__'
     | '/'
     | '/configuration'
+    | '/conversions'
+    | '/links'
     | '/campaigns/$campaignId'
     | '/campaigns/'
   fileRoutesById: FileRoutesById
@@ -70,6 +102,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ConfigurationRoute: typeof ConfigurationRoute
+  ConversionsRoute: typeof ConversionsRoute
+  LinksRoute: typeof LinksRoute
   CampaignsCampaignIdRoute: typeof CampaignsCampaignIdRoute
   CampaignsIndexRoute: typeof CampaignsIndexRoute
 }
@@ -88,6 +122,20 @@ declare module '@tanstack/react-router' {
       path: '/configuration'
       fullPath: '/configuration'
       preLoaderRoute: typeof ConfigurationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/conversions': {
+      id: '/conversions'
+      path: '/conversions'
+      fullPath: '/conversions'
+      preLoaderRoute: typeof ConversionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/links': {
+      id: '/links'
+      path: '/links'
+      fullPath: '/links'
+      preLoaderRoute: typeof LinksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/campaigns/': {
@@ -110,6 +158,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ConfigurationRoute: ConfigurationRoute,
+  ConversionsRoute: ConversionsRoute,
+  LinksRoute: LinksRoute,
   CampaignsCampaignIdRoute: CampaignsCampaignIdRoute,
   CampaignsIndexRoute: CampaignsIndexRoute,
 }

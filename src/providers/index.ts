@@ -818,6 +818,7 @@ export const simulationProvider = {
       platform: state.platform,
       channel: link.channel,
     };
+    if (step === "CLICK" && link.status !== "ACTIVE") throw new LinkUnavailableError(link.link_id);
     const next: SimulationState = {
       ...state,
       completed: state.completed.includes(step) ? state.completed : [...state.completed, step],
@@ -827,7 +828,6 @@ export const simulationProvider = {
 
     // Simulator-level idempotency: naturally singular stages happen once per journey.
     const alreadyDone =
-      (step === "CLICK" && link.status !== "ACTIVE") ||
       (step === "INSTALL" && store.installs.some((i) => i.session_id === attribution.session_id)) ||
       (step === "FIRST_OPEN" && hasEvent("FIRST_OPEN")) ||
       (step === "SIGNUP_STARTED" && !!attribution.signup_id) ||

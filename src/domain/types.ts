@@ -165,6 +165,8 @@ export interface AttributionContext {
   destination: DestinationType;
   demo_experience_id: string | null;
   link_status: LinkStatus;
+  /** False when the link is disabled: no new acquisition may originate from it. */
+  available_for_acquisition: boolean;
 }
 
 export interface Click {

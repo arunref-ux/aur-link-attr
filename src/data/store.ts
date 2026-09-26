@@ -7,7 +7,12 @@
  */
 
 import type {
+  AcquisitionSession,
   Attribution,
+  AttributionResolution,
+  ConversionEvent,
+  CurrentAttributionProjection,
+  IdempotencyRecord,
   AttributionEvent,
   AttributionLink,
   AttributionRulesConfig,
@@ -47,6 +52,14 @@ export interface StoreShape {
   rules: AttributionRulesConfig;
   providers: ProviderDescriptor[];
   domains: DomainDescriptor[];
+  /* production-contract tables (simulated PostgreSQL) */
+  acquisitionSessions: AcquisitionSession[];
+  resolutions: AttributionResolution[];
+  currentAttribution: Record<string, CurrentAttributionProjection>;
+  conversionEvents: ConversionEvent[];
+  idempotency: IdempotencyRecord[];
+  /** Active rules version; every new resolution is stamped with it. */
+  rulesVersion: string;
 }
 
 /** Anchor "now" so the simulated dataset is deterministic across server + client. */
@@ -550,6 +563,12 @@ export const store: StoreShape = {
   rules,
   providers,
   domains,
+  acquisitionSessions: [],
+  resolutions: [],
+  currentAttribution: {},
+  conversionEvents: [],
+  idempotency: [],
+  rulesVersion: "ATTR-RULES-1",
 };
 
 for (const id of [
@@ -625,6 +644,7 @@ function pushEvent(e: EventInput): AttributionEvent {
     event_id,
     source_event_id: e.source_event_id ?? `${e.source_system}:${event_id.replace("EVT-", "")}`,
     received_at: e.received_at ?? (seeding ? e.occurred_at : new Date().toISOString()),
+    schema_version: e.schema_version ?? "1",
   };
   store.events.push(event);
   return event;
@@ -673,15 +693,36 @@ function makeClick(
   };
 }
 
-/** Apply an engine result onto the current attribution projection. */
+/** Write the current_attribution projection row from the attribution's latest resolution. */
+export function projectCurrent(attribution: Attribution, at: string) {
+  if (!attribution.current_resolution_id) return;
+  store.currentAttribution[attribution.attribution_id] = {
+    subject_type: "ATTRIBUTION",
+    subject_id: attribution.attribution_id,
+    current_resolution_id: attribution.current_resolution_id,
+    partner_id: attribution.partner_id,
+    campaign_id: attribution.campaign_id,
+    method: attribution.attribution_method,
+    status: attribution.status,
+    updated_at: at,
+  };
+}
+
+/**
+ * Apply an engine result: persist an immutable attribution_resolutions row
+ * (stamped with the active rules version) and update the current projection.
+ */
 export function applyResolution(attribution: Attribution, res: ResolutionOutput) {
   const partner = res.partner_id
     ? (store.partners.find((p) => p.partner_id === res.partner_id) ?? null)
     : null;
   const link = res.link_id ? store.links.find((l) => l.link_id === res.link_id) : undefined;
   attribution.partner_id = res.partner_id;
-  attribution.partner_name_snapshot = partner?.name ?? null;
-  attribution.partner_type_snapshot = partner?.partner_type ?? null;
+  // Partner unavailable from Partner Portal → keep history interpretable via the link snapshot.
+  attribution.partner_name_snapshot =
+    partner?.name ?? (res.partner_id ? (link?.partner_name_snapshot ?? null) : null);
+  attribution.partner_type_snapshot =
+    partner?.partner_type ?? (res.partner_id ? (link?.partner_type_snapshot ?? null) : null);
   attribution.campaign_id = res.campaign_id;
   attribution.link_id = res.link_id;
   attribution.click_id = res.click_id;
@@ -692,6 +733,34 @@ export function applyResolution(attribution: Attribution, res: ResolutionOutput)
   attribution.resolution_timestamp = res.resolved_at;
   attribution.status = res.status;
   attribution.attributed_at = res.status === "ATTRIBUTED" ? res.resolved_at : null;
+
+  const createdAt = seeding ? res.resolved_at : new Date().toISOString();
+  const session = res.click_id
+    ? store.acquisitionSessions.find((s) => s.click_id === res.click_id)
+    : undefined;
+  const resolution: AttributionResolution = {
+    resolution_id: nextId("RES", 5),
+    subject_type: "ATTRIBUTION",
+    subject_id: attribution.attribution_id,
+    acquisition_session_id: session?.acquisition_session_id ?? null,
+    partner_id: res.partner_id,
+    campaign_id: res.campaign_id,
+    link_id: res.link_id,
+    click_id: res.click_id,
+    method: res.attribution_method,
+    source: res.attribution_source,
+    reason: res.resolution_reason,
+    status: res.status,
+    kind: "ENGINE",
+    rules_version: store.rulesVersion,
+    resolved_at: res.resolved_at,
+    created_at: createdAt,
+  };
+  store.resolutions.push(resolution);
+  attribution.rules_version = resolution.rules_version;
+  attribution.current_resolution_id = resolution.resolution_id;
+  projectCurrent(attribution, createdAt);
+  return resolution;
 }
 
 function buildJourney(seed: JourneySeed): Attribution {

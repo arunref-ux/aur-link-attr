@@ -168,6 +168,7 @@ describe("Simulator behaviour", () => {
       to_partner_id: "P-118",
       reason: "test",
       actor: "tester",
+      expected_current_resolution_id: a.current_resolution_id ?? null,
     });
     expect(store.clicks.find((c) => c.click_id === originalClick.click_id)).toEqual(originalClick);
     expect(a.overrides.at(-1)).toMatchObject({ from_partner_id: "P-104", to_partner_id: "P-118" });
@@ -218,7 +219,8 @@ describe("Simulator behaviour", () => {
     ] as const) {
       t = await simulationProvider.step(t, step);
     }
-    expect(await firstOpens()).toBe(start + 1);
+    // One first launch = one FIRST_OPEN; signup/tenant never add first opens.
+    expect(await firstOpens()).toBe(start + 2);
   });
 
   it("IDs and tokens never collide with seeded data", async () => {

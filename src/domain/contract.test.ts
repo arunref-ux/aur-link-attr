@@ -65,10 +65,13 @@ describe("Ingestion contract", () => {
   it("valid acquisition token resolves the correct session; unknown token does not fabricate attribution", async () => {
     let s = await simulationProvider.start("LNK-0001", "ANDROID");
     s = await simulationProvider.step(s, "CLICK");
-    const session = store.acquisitionSessions.find((x) => x.click_id === s.click!.click_id)!;
+    const session = store.acquisitionSessions.find(
+      (x) => x.acquisition_session_id === s.click!.acquisition_session_id,
+    )!;
     s = await simulationProvider.step(s, "FIRST_LAUNCH");
     const a = store.attributions.find((x) => x.attribution_id === s.acquisition_journey_id!)!;
-    expect(a.click_id).toBe(session.click_id);
+    expect(a.click_id).toBe(s.click!.click_id);
+    expect(session.acquisition_journey_id).toBe(a.attribution_id);
     expect(a.attribution_method).toBe("DETERMINISTIC");
 
     let u = await simulationProvider.start("LNK-0001", "ANDROID");

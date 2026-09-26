@@ -6,7 +6,7 @@
  * HttpAttributionClient would send exactly these payloads over HTTP.
  */
 
-import type { AppName, AttributionMethod, Platform } from "@/domain/types";
+import type { AppName, AttributionMethod, AttributionStatus, Platform } from "@/domain/types";
 
 export const SCHEMA_VERSION = "1";
 
@@ -19,6 +19,12 @@ export type ApiErrorCode =
   | "UNAUTHORIZED_SOURCE"
   | "UNKNOWN_ACQUISITION_TOKEN"
   | "CONFLICT"
+  | "IDEMPOTENCY_KEY_REUSED"
+  | "IDEMPOTENCY_IN_PROGRESS"
+  | "BUSINESS_IDENTITY_CONFLICT"
+  | "SIGNUP_BINDING_INVALID"
+  | "SIGNUP_BINDING_CONSUMED"
+  | "STALE_ATTRIBUTION_STATE"
   | "INTERNAL_ERROR";
 
 export interface ApiError {
@@ -49,10 +55,12 @@ export function appSourceFor(app: AppName, platform: Platform): SourceSystem {
   return `${app}_${platform}` as SourceSystem;
 }
 
-/** Event types accepted by POST /api/v1/attribution/events. */
+/**
+ * Event types accepted by POST /api/v1/attribution/events.
+ * Install + first open are NOT submitted here: Android uses the single
+ * POST /api/v1/attribution/first-launch request.
+ */
 export type IngestEventType =
-  | "INSTALL_REFERRER_RECEIVED"
-  | "FIRST_OPEN"
   | "SIGNUP_STARTED"
   | "SIGNUP_COMPLETED"
   | "TENANT_CREATED"
@@ -61,7 +69,7 @@ export type IngestEventType =
   | "FIRST_PAYMENT"
   | "PAYMENT_RECEIVED";
 
-const APP_SOURCES: SourceSystem[] = [
+export const APP_SOURCES: SourceSystem[] = [
   "AURA_ANDROID",
   "SHOPTALK_ANDROID",
   "AURUMI_ANDROID",
@@ -74,9 +82,8 @@ const APP_SOURCES: SourceSystem[] = [
 ];
 
 /** Source authority: which producer may submit which fact. */
-export const SOURCE_AUTHORITY: Record<IngestEventType, SourceSystem[]> = {
-  INSTALL_REFERRER_RECEIVED: APP_SOURCES,
-  FIRST_OPEN: APP_SOURCES,
+export const SOURCE_AUTHORITY: Record<IngestEventType | "FIRST_LAUNCH", SourceSystem[]> = {
+  FIRST_LAUNCH: APP_SOURCES,
   SIGNUP_STARTED: ["SIGNUP_SERVICE"],
   SIGNUP_COMPLETED: ["SIGNUP_SERVICE"],
   TENANT_CREATED: ["TENANT_SERVICE"],
@@ -94,6 +101,8 @@ export const SERVER_RESOLVED_FIELDS = [
   "attribution_method",
   "resolution_reason",
   "received_at",
+  "acquisition_journey_id",
+  "acquisition_session_id",
 ] as const;
 
 /** Commercial values trusted ONLY from BILLING_SERVICE. */
@@ -107,10 +116,10 @@ export interface IngestEventRequest {
   occurred_at: string;
   app: AppName;
   platform: Platform;
-  /** `aur_at` recovered from the Play Install Referrer (or preserved web token). */
-  acquisition_token?: string | undefined;
-  acquisition_session_id?: string | undefined;
-  install_id?: string | undefined;
+  /** Opaque token issued at first launch, carried by the app into signup, submitted server-to-server. */
+  signup_binding_token?: string | undefined;
+  /** Referral code entered at signup — a fact, resolved via the Partner Portal lookup. */
+  referral_code?: string | undefined;
   user_id?: string | undefined;
   signup_id?: string | undefined;
   tenant_id?: string | undefined;
@@ -122,8 +131,6 @@ export interface IngestEventRequest {
   price_version_id?: string | undefined;
   amount?: number | undefined;
   currency?: "INR" | undefined;
-  /** Provider-dependent matching hint (simulated iOS deferred matching only). */
-  match_hint?: string | undefined;
   /* Untrusted values a client might send; the server ignores them. */
   partner_id?: string | undefined;
   campaign_id?: string | undefined;
@@ -131,7 +138,56 @@ export interface IngestEventRequest {
   attribution_method?: string | undefined;
   resolution_reason?: string | undefined;
   received_at?: string | undefined;
+  acquisition_journey_id?: string | undefined;
+  acquisition_session_id?: string | undefined;
   metadata?: Record<string, string | number | boolean | null> | undefined;
+}
+
+/** POST /api/v1/attribution/first-launch — sent once by the app after reading the Install Referrer. */
+export interface FirstLaunchRequest {
+  source_system: string;
+  source_event_id: string;
+  /** Stable app-installation ID. UNIQUE(app, installation_id). */
+  installation_id: string;
+  /** Opaque `aur_at` from the Play Install Referrer (or preserved web token), if present. */
+  acquisition_token?: string | undefined;
+  app: AppName;
+  platform: Platform;
+  app_version: string;
+  occurred_at: string;
+  /** Provider-dependent matching hint (simulated iOS deferred matching only). */
+  match_hint?: string | undefined;
+  /* Untrusted — ignored if present. */
+  partner_id?: string | undefined;
+  campaign_id?: string | undefined;
+  link_id?: string | undefined;
+  attribution_method?: string | undefined;
+  resolution_reason?: string | undefined;
+  received_at?: string | undefined;
+  acquisition_journey_id?: string | undefined;
+  acquisition_session_id?: string | undefined;
+}
+
+export interface FirstLaunchResponse {
+  success: true;
+  duplicate: boolean;
+  outcome: "APPLIED" | "BUSINESS_DUPLICATE";
+  acquisition_journey_id: string;
+  installation_id: string;
+  signup_binding_token: string | null;
+  attribution: { status: AttributionStatus; method: AttributionMethod };
+  received_at: string;
+  ignored_fields: string[];
+  warnings: ApiError[];
+  /** Simulator display only — not part of the Android response contract. */
+  correlation: CorrelationHop[];
+}
+
+export interface FirstLaunchOutcome {
+  request: FirstLaunchRequest;
+  http: HttpExchange<FirstLaunchResponse | { success: false; error: ApiError }>;
+  pipeline: PipelineStep[];
+  committed: boolean;
 }
 
 export interface CorrelationHop {
@@ -144,7 +200,7 @@ export interface IngestEventResponse {
   duplicate: boolean;
   outcome: "APPLIED" | "BUSINESS_DUPLICATE" | "UNRESOLVED";
   event_ids: string[];
-  attribution_id: string | null;
+  acquisition_journey_id: string | null;
   resolution: {
     resolution_id: string;
     method: AttributionMethod;
@@ -185,6 +241,7 @@ export interface RedirectOutcome {
   location: string;
   /** Install Referrer payload handed to Google Play — never partner identity. */
   referrer: string | null;
+  acquisition_journey_id: string | null;
   click_id: string | null;
   acquisition_session_id: string | null;
   acquisition_token: string | null;
@@ -194,4 +251,38 @@ export interface RedirectOutcome {
 /** Simulated service credential (the authenticated identity of the caller). */
 export interface ServiceCredential {
   source_system: string;
+}
+
+/** Admin override request — optimistic concurrency via the expected current resolution. */
+export interface OverrideRequest {
+  attribution_id: string;
+  to_partner_id: string;
+  reason: string;
+  actor: string;
+  /** Must equal the journey's current resolution at commit, else 409 STALE_ATTRIBUTION_STATE. */
+  expected_current_resolution_id: string | null;
+}
+
+/** Deterministic canonical request hash (FNV-1a over sorted-key JSON, excluding server values). */
+export function canonicalRequestHash(req: object): string {
+  const canon = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(canon);
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(v).sort()) {
+        const val = (v as Record<string, unknown>)[k];
+        if (k === "received_at" || val === undefined) continue;
+        out[k] = canon(val);
+      }
+      return out;
+    }
+    return v;
+  };
+  const text = JSON.stringify(canon(req));
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `fnv1a:${h.toString(16).padStart(8, "0")}`;
 }

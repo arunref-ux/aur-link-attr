@@ -692,3 +692,402 @@ export interface CampaignPerformance {
   funnel: FunnelStageRow[];
 }
 
+/* ---------------------- Journey simulation (Test Journey) ---------------------- */
+
+/** 409 STALE_ATTRIBUTION_STATE — the journey's current resolution changed; refresh and retry. */
+export class StaleAttributionStateError extends Error {
+  code = "STALE_ATTRIBUTION_STATE" as const;
+  status = 409;
+  constructor(public current_resolution_id: string | null) {
+    super("Attribution changed since you loaded it. Refresh and try again.");
+    this.name = "StaleAttributionStateError";
+  }
+}
+
+export type SimulationStep =
+  | "CLICK"
+  | "FIRST_LAUNCH"
+  | "SIGNUP_STARTED"
+  | "SIGNUP_COMPLETED"
+  | "TENANT_CREATED"
+  | "TENANT_ACTIVATED"
+  | "SUBSCRIPTION_STARTED"
+  | "FIRST_PAYMENT";
+
+/** One entry in the Technical Journey: what crossed a production boundary. */
+export interface TechnicalEntry {
+  id: string;
+  step: SimulationStep | "RETRY";
+  title: string;
+  actor: string;
+  request_line: string;
+  /** Hand-offs shown before the request (e.g. token transport). */
+  handoff?: string[] | undefined;
+  payload: unknown;
+  pipeline: PipelineStep[];
+  status: number;
+  response: unknown;
+  correlation: CorrelationHop[];
+  counts_before: RepositoryCounts;
+  counts_after: RepositoryCounts;
+  committed: boolean;
+}
+
+type LastRequest =
+  | { kind: "FIRST_LAUNCH"; request: FirstLaunchRequest; credential: ServiceCredential; step: SimulationStep }
+  | { kind: "EVENT"; request: IngestEventRequest; credential: ServiceCredential; step: SimulationStep };
+
+export interface SimulationState {
+  /** Local simulator handle (the simulated phone). Not a backend identifier. */
+  sim_id: string;
+  /** Assigned by the backend at redirect (or first launch). Null before. */
+  acquisition_journey_id: string | null;
+  link_id: string;
+  token: string;
+  platform: Platform;
+  completed: SimulationStep[];
+  click?: Click;
+  install?: Install;
+  redirect_target?: string;
+  technical: TechnicalEntry[];
+  last_request?: LastRequest;
+}
+
+export class LinkUnavailableError extends Error {
+  constructor(public link_id: string) {
+    super("This link is disabled and cannot start a new journey.");
+    this.name = "LinkUnavailableError";
+  }
+}
+
+/**
+ * Simulated devices/services. Each holds only what the real client would hold:
+ * the phone keeps the Install Referrer (aur_at) and the signup_binding_token;
+ * the signup service knows its user/signup IDs, billing knows its transactions.
+ */
+interface DeviceMemory {
+  acquisition_token?: string | undefined;
+  installation_id?: string | undefined;
+  signup_binding_token?: string | undefined;
+  user_id?: string | undefined;
+  signup_id?: string | undefined;
+  tenant_id?: string | undefined;
+  subscription_id?: string | undefined;
+}
+const devices = new Map<string, DeviceMemory>();
+const sourceEventId = (prefix: string) =>
+  `${prefix}-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+
+export interface StepOptions {
+  failBeforeCommit?: boolean | undefined;
+  occurred_at?: string | undefined;
+  untrusted?: Record<string, unknown> | undefined;
+  /** Contract testing: replace the device's acquisition token. */
+  acquisition_token?: string | undefined;
+  /** Contract testing: replace the carried signup binding token. */
+  signup_binding_token?: string | undefined;
+  referral_code?: string | undefined;
+  beforeCommit?: (() => void) | undefined;
+}
+
+export const simulationProvider = {
+  /** Before redirect the simulator holds only campaign + link + partner reference. */
+  async start(linkId: string, platform: Platform): Promise<SimulationState> {
+    await latency();
+    const link = store.links.find((l) => l.link_id === linkId);
+    if (!link) throw new Error("Unknown link");
+    if (link.status !== "ACTIVE") throw new LinkUnavailableError(link.link_id);
+    const sim_id = `SIM-${Math.random().toString(36).slice(2, 10)}`;
+    devices.set(sim_id, {});
+    return {
+      sim_id,
+      acquisition_journey_id: null,
+      link_id: link.link_id,
+      token: link.token,
+      platform,
+      completed: [],
+      technical: [],
+    };
+  },
+
+  async step(state: SimulationState, step: SimulationStep, options: StepOptions = {}): Promise<SimulationState> {
+    await latency();
+    const link = store.links.find((l) => l.link_id === state.link_id)!;
+    const device = devices.get(state.sim_id) ?? {};
+    devices.set(state.sim_id, device);
+    const repo = simulatedBackend.repository;
+    const next: SimulationState = { ...state, technical: [...(state.technical ?? [])] };
+    const before = repo.counts();
+    const done = () => {
+      next.completed = next.completed.includes(step) ? next.completed : [...next.completed, step];
+    };
+
+    if (step === "CLICK") {
+      if (link.status !== "ACTIVE") throw new LinkUnavailableError(link.link_id);
+      const out = simulatedBackend.redirect({
+        token: link.token,
+        platform: state.platform,
+        device_session_id: state.sim_id,
+      });
+      if (out.error?.code === "LINK_DISABLED") throw new LinkUnavailableError(link.link_id);
+      next.technical.push({
+        id: nextId("TXN", 5),
+        step,
+        title: "Redirect Service",
+        actor: "Customer's browser",
+        request_line: `GET go.aurumi.ai/x/${link.token}`,
+        payload: null,
+        pipeline: out.pipeline,
+        status: out.http.status,
+        response: out.error
+          ? { success: false, error: out.error, location: out.location }
+          : { status: "302 REDIRECT", location: out.location, referrer: out.referrer },
+        correlation: out.click_id
+          ? [
+              { label: "Journey", value: out.acquisition_journey_id ?? "—" },
+              { label: "Acquisition session", value: out.acquisition_session_id ?? "—" },
+              { label: "Click", value: out.click_id },
+              { label: "aur_at", value: out.acquisition_token ?? "—" },
+            ]
+          : [],
+        counts_before: before,
+        counts_after: repo.counts(),
+        committed: !out.error,
+      });
+      if (out.error) {
+        notifyStore();
+        throw new Error(out.error.message);
+      }
+      device.acquisition_token = out.acquisition_token ?? undefined;
+      next.acquisition_journey_id = out.acquisition_journey_id;
+      next.click = clone(store.clicks.find((c) => c.click_id === out.click_id)!);
+      next.redirect_target = next.click.redirect_target;
+      done();
+      notifyStore();
+      return next;
+    }
+
+    if (step === "FIRST_LAUNCH") {
+      device.installation_id = device.installation_id ?? nextId("INS", 5);
+      const source = appSourceFor(link.app, state.platform);
+      let request: FirstLaunchRequest = {
+        source_system: source,
+        source_event_id: sourceEventId("fl"),
+        installation_id: device.installation_id,
+        app: link.app,
+        platform: state.platform,
+        app_version: "1.4.0",
+        occurred_at: options.occurred_at ?? new Date().toISOString(),
+        ...(state.platform === "IOS" && !options.acquisition_token
+          ? { match_hint: state.sim_id }
+          : { acquisition_token: options.acquisition_token ?? device.acquisition_token }),
+      };
+      if (options.untrusted) request = { ...request, ...options.untrusted } as FirstLaunchRequest;
+      const credential = { source_system: source };
+      const outcome = simulatedBackend.firstLaunch(request, credential, {
+        failBeforeCommit: options.failBeforeCommit,
+        beforeCommit: options.beforeCommit,
+      });
+      next.last_request = { kind: "FIRST_LAUNCH", request, credential, step };
+      next.technical.push(firstLaunchEntry(step, request, outcome, before, repo.counts()));
+      const body = outcome.http.body;
+      if (outcome.http.status < 400 && body.success) {
+        done();
+        device.signup_binding_token = body.signup_binding_token ?? undefined;
+        next.acquisition_journey_id = body.acquisition_journey_id || next.acquisition_journey_id;
+        const install = store.installs.find((i) => i.install_id === device.installation_id);
+        if (install) next.install = clone(install);
+      }
+      notifyStore();
+      return next;
+    }
+
+    const built = buildRequest(step, state, link.app, device, options);
+    const outcome = simulatedBackend.ingestEvent(built.request, built.credential, {
+      failBeforeCommit: options.failBeforeCommit,
+      beforeCommit: options.beforeCommit,
+    });
+    next.last_request = { kind: "EVENT", ...built, step };
+    next.technical.push(technicalFor(step, built, outcome, before, repo.counts()));
+    if (outcome.http.status < 400) done();
+    notifyStore();
+    return next;
+  },
+
+  /** Re-submit the exact last request (same source_system + source_event_id + payload). */
+  async retryLast(state: SimulationState, mutate?: Record<string, unknown>): Promise<SimulationState> {
+    await latency();
+    const last = state.last_request;
+    if (!last) return state;
+    const repo = simulatedBackend.repository;
+    const before = repo.counts();
+    let entry: TechnicalEntry;
+    let next = { ...state };
+    if (last.kind === "FIRST_LAUNCH") {
+      const request = { ...last.request, ...(mutate ?? {}) } as FirstLaunchRequest;
+      const outcome = simulatedBackend.firstLaunch(request, last.credential);
+      entry = firstLaunchEntry("RETRY", request, outcome, before, repo.counts());
+      const body = outcome.http.body;
+      if (outcome.http.status < 400 && body.success && !next.acquisition_journey_id) {
+        next = { ...next, acquisition_journey_id: body.acquisition_journey_id };
+      }
+      if (outcome.http.status < 400 && body.success) {
+        const device = devices.get(state.sim_id);
+        if (device) device.signup_binding_token = body.signup_binding_token ?? device.signup_binding_token;
+      }
+    } else {
+      const request = { ...last.request, ...(mutate ?? {}) } as IngestEventRequest;
+      const outcome = simulatedBackend.ingestEvent(request, last.credential);
+      entry = technicalFor("RETRY", { request, credential: last.credential }, outcome, before, repo.counts());
+    }
+    entry.title = `Retry — ${entry.title}`;
+    notifyStore();
+    return { ...next, technical: [...state.technical, entry] };
+  },
+
+  async getAttribution(id: string): Promise<Attribution | null> {
+    return attributionProvider.getAttribution(id);
+  },
+};
+
+const STEP_EVENT: Record<Exclude<SimulationStep, "CLICK" | "FIRST_LAUNCH">, IngestEventType> = {
+  SIGNUP_STARTED: "SIGNUP_STARTED",
+  SIGNUP_COMPLETED: "SIGNUP_COMPLETED",
+  TENANT_CREATED: "TENANT_CREATED",
+  TENANT_ACTIVATED: "TENANT_ACTIVATED",
+  SUBSCRIPTION_STARTED: "SUBSCRIPTION_STARTED",
+  FIRST_PAYMENT: "FIRST_PAYMENT",
+};
+
+function buildRequest(
+  step: SimulationStep,
+  state: SimulationState,
+  app: AppName,
+  device: DeviceMemory,
+  options: StepOptions,
+): { request: IngestEventRequest; credential: ServiceCredential } {
+  const event_type = STEP_EVENT[step as keyof typeof STEP_EVENT];
+  const occurred_at = options.occurred_at ?? new Date().toISOString();
+  const base = { event_type, occurred_at, app, platform: state.platform };
+  let request: IngestEventRequest;
+  if (step === "SIGNUP_STARTED" || step === "SIGNUP_COMPLETED") {
+    device.user_id = device.user_id ?? nextId("U", 6);
+    device.signup_id = device.signup_id ?? nextId("SGN", 5);
+    request = {
+      ...base,
+      source_system: "SIGNUP_SERVICE",
+      source_event_id: sourceEventId("sgn-evt"),
+      user_id: device.user_id,
+      signup_id: device.signup_id,
+      // Carried by the app into signup; Signup Service submits it server-to-server.
+      signup_binding_token: options.signup_binding_token ?? device.signup_binding_token,
+      ...(step === "SIGNUP_COMPLETED"
+        ? {
+            contact_email: "simulated.prospect@example.in",
+            tenant_name: "Simulated Prospect Pvt Ltd",
+            ...(options.referral_code ? { referral_code: options.referral_code } : {}),
+          }
+        : {}),
+    };
+  } else if (step === "TENANT_CREATED" || step === "TENANT_ACTIVATED") {
+    device.tenant_id = device.tenant_id ?? nextId("T", 6);
+    request = {
+      ...base,
+      source_system: "TENANT_SERVICE",
+      source_event_id: sourceEventId("tnt-evt"),
+      tenant_id: device.tenant_id,
+      user_id: device.user_id,
+      signup_id: device.signup_id,
+    };
+  } else {
+    const pv =
+      store.priceVersions.find((p) => store.plans.find((pl) => pl.plan_id === p.plan_id)?.app === app) ??
+      store.priceVersions[0]!;
+    device.subscription_id = device.subscription_id ?? nextId("SUB", 5);
+    request = {
+      ...base,
+      source_system: "BILLING_SERVICE",
+      source_event_id: sourceEventId("bill-evt"),
+      tenant_id: device.tenant_id,
+      subscription_id: device.subscription_id,
+      plan_id: pv.plan_id,
+      price_version_id: pv.price_version_id,
+      ...(step === "FIRST_PAYMENT"
+        ? { transaction_id: nextId("TX", 5), amount: pv.amount, currency: "INR" as const }
+        : {}),
+    };
+  }
+  if (options.untrusted) request = { ...request, ...options.untrusted } as IngestEventRequest;
+  return { request, credential: { source_system: request.source_system } };
+}
+
+const ACTOR: Record<string, string> = {
+  SIGNUP_SERVICE: "Signup Service (trusted server call)",
+  TENANT_SERVICE: "Tenant Service (trusted server call)",
+  BILLING_SERVICE: "Billing Service",
+};
+
+function firstLaunchEntry(
+  step: SimulationStep | "RETRY",
+  request: FirstLaunchRequest,
+  outcome: ReturnType<typeof simulatedBackend.firstLaunch>,
+  before: RepositoryCounts,
+  after: RepositoryCounts,
+): TechnicalEntry {
+  const body = outcome.http.body;
+  return {
+    id: nextId("TXN", 5),
+    step,
+    title: "Attribution API · first launch",
+    actor: `${titleApp(request.source_system)} app (${request.source_system})`,
+    request_line: "POST /api/v1/attribution/first-launch",
+    handoff: request.acquisition_token
+      ? ["Google Play Install Referrer → aur_at read by the app"]
+      : ["No aur_at available on this device"],
+    payload: request,
+    pipeline: outcome.pipeline,
+    status: outcome.http.status,
+    response: body,
+    correlation: body.success ? body.correlation : [],
+    counts_before: before,
+    counts_after: after,
+    committed: outcome.committed,
+  };
+}
+
+function technicalFor(
+  step: SimulationStep | "RETRY",
+  built: { request: IngestEventRequest; credential: ServiceCredential },
+  outcome: IngestOutcome,
+  before: RepositoryCounts,
+  after: RepositoryCounts,
+): TechnicalEntry {
+  const body = outcome.http.body;
+  const src = built.request.source_system;
+  const t = built.request.event_type;
+  return {
+    id: nextId("TXN", 5),
+    step,
+    title: `Attribution Ingestion API · ${t}`,
+    actor: ACTOR[src] ?? `${titleApp(src)} app (${src})`,
+    request_line: `POST /api/v1/attribution/events`,
+    handoff: t.startsWith("SIGNUP")
+      ? ["App carries opaque signup_binding_token into signup", "Signup Service submits it server-to-server"]
+      : t.startsWith("TENANT")
+        ? ["Tenant Service sends user / signup identity — no journey or session ID"]
+        : undefined,
+    payload: built.request,
+    pipeline: outcome.pipeline,
+    status: outcome.http.status,
+    response: body,
+    correlation: body.success ? body.data.correlation : [],
+    counts_before: before,
+    counts_after: after,
+    committed: outcome.committed,
+  };
+}
+
+function titleApp(source: string): string {
+  const app = source.split("_")[0] ?? source;
+  return app.charAt(0) + app.slice(1).toLowerCase();
+}

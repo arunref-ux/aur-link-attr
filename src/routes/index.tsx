@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { attributionProvider } from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
 import { APP_LABEL, CHANNEL_LABEL, formatPercent } from "@/lib/format";
 import type { AppName, Channel } from "@/domain/types";
 
@@ -49,7 +49,7 @@ function OverviewPage() {
   const [custom, setCustom] = useState("");
   const { data } = useQuery({
     queryKey: ["overview", days],
-    queryFn: () => attributionProvider.getOverview(days),
+    queryFn: () => attributionClient.getOverview(days),
   });
 
   return (

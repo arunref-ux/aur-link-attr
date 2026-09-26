@@ -207,6 +207,8 @@ export interface AttributionEvent {
   attribution_method?: AttributionMethod | undefined;
   source_system: string;
   metadata: Record<string, string | number | boolean | null>;
+  /** Contract schema version of the stored fact. */
+  schema_version?: string | undefined;
 }
 
 export interface Attribution {
@@ -252,9 +254,14 @@ export interface Attribution {
     occurred_at: string;
   } | null;
   overrides: AttributionOverride[];
+  /** Rules version of the resolution currently projected onto this record. */
+  rules_version?: string | undefined;
+  current_resolution_id?: string | undefined;
 }
 
 export interface AttributionOverride {
+  override_id?: string | undefined;
+  previous_resolution_id?: string | null | undefined;
   from_partner_id: string | null;
   from_partner_name: string | null;
   to_partner_id: string;
@@ -294,3 +301,88 @@ export interface DomainDescriptor {
 
 export type FunnelStage =
   "CLICKS" | "INSTALLS" | "FIRST_OPENS" | "SIGNUPS" | "TENANTS" | "ACTIVATED" | "PAID";
+
+/* ---------- Production contract persistence (simulated PostgreSQL rows) ---------- */
+
+/** acquisition_sessions — created by the Redirect Service for every eligible click. */
+export interface AcquisitionSession {
+  acquisition_session_id: string;
+  link_id: string;
+  click_id: string;
+  /** Opaque, server-generated. Travels as `aur_at` in the Play Install Referrer. */
+  public_acquisition_token: string;
+  platform: Platform;
+  started_at: string;
+  expires_at: string;
+  status: "OPEN" | "INSTALLED" | "EXPIRED";
+  /** Simulator only: the simulated browser/device session the click happened in. */
+  device_session_id: string;
+}
+
+/** attribution_resolutions — what the engine concluded at a point in time. Immutable. */
+export interface AttributionResolution {
+  resolution_id: string;
+  subject_type: "ATTRIBUTION";
+  subject_id: string;
+  acquisition_session_id: string | null;
+  partner_id: string | null;
+  campaign_id: string | null;
+  link_id: string | null;
+  click_id: string | null;
+  method: AttributionMethod;
+  source: string;
+  reason: string;
+  status: AttributionStatus;
+  kind: "ENGINE" | "OVERRIDE";
+  rules_version: string;
+  resolved_at: string;
+  created_at: string;
+}
+
+/** current_attribution — read-optimized projection; may change after an override. */
+export interface CurrentAttributionProjection {
+  subject_type: "ATTRIBUTION";
+  subject_id: string;
+  current_resolution_id: string;
+  partner_id: string | null;
+  campaign_id: string | null;
+  method: AttributionMethod;
+  status: AttributionStatus;
+  updated_at: string;
+}
+
+export type ConversionType =
+  | "SIGNUP_COMPLETED"
+  | "TENANT_CREATED"
+  | "TENANT_ACTIVATED"
+  | "SUBSCRIPTION_STARTED"
+  | "FIRST_PAYMENT"
+  | "PAYMENT_RECEIVED";
+
+/** conversion_events — downstream business facts; billing stays authoritative. */
+export interface ConversionEvent {
+  conversion_event_id: string;
+  source_system: string;
+  source_event_id: string;
+  conversion_type: ConversionType;
+  user_id: string | null;
+  tenant_id: string | null;
+  subscription_id: string | null;
+  transaction_id: string | null;
+  plan_id: string | null;
+  price_version_id: string | null;
+  amount: number | null;
+  currency: "INR" | null;
+  occurred_at: string;
+  received_at: string;
+  metadata: Record<string, string | number | boolean | null>;
+}
+
+/** Idempotency ledger backing UNIQUE(source_system, source_event_id). */
+export interface IdempotencyRecord {
+  source_system: string;
+  source_event_id: string;
+  received_at: string;
+  /** Stored original response, replayed verbatim on retries. */
+  response: unknown;
+}

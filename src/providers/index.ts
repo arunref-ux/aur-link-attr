@@ -39,8 +39,25 @@ import {
   applyResolution,
   installSignalFor,
   partnerNameOf,
+  recordOverride,
 } from "@/data/store";
 import { resolveAttribution as runRules } from "@/lib/attribution-rules";
+import {
+  appSourceFor,
+  type CorrelationHop,
+  type IngestEventRequest,
+  type IngestEventType,
+  type IngestOutcome,
+  type PipelineStep,
+  type ServiceCredential,
+} from "@/backend/contract";
+import type { RepositoryCounts } from "@/backend/repository";
+import { simulatedBackend } from "@/backend/simulated-backend";
+
+export function bumpRulesVersion(v: string): string {
+  const n = Number(v.replace("ATTR-RULES-", "")) || 1;
+  return `ATTR-RULES-${n + 1}`;
+}
 
 const latency = () => new Promise<void>((r) => setTimeout(r, 40));
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -432,42 +449,7 @@ export const attributionProvider = {
     const attribution = store.attributions.find((a) => a.attribution_id === input.attribution_id);
     const target = store.partners.find((p) => p.partner_id === input.to_partner_id);
     if (!attribution || !target) return null;
-    const occurred_at = new Date().toISOString();
-    attribution.overrides.push({
-      from_partner_id: attribution.partner_id,
-      from_partner_name: attribution.partner_name_snapshot,
-      to_partner_id: target.partner_id,
-      to_partner_name: target.name,
-      reason: input.reason,
-      actor: input.actor,
-      occurred_at,
-    });
-    pushEvent({
-      event_type: "ATTRIBUTION_OVERRIDDEN",
-      occurred_at,
-      attribution_id: attribution.attribution_id,
-      session_id: attribution.session_id,
-      link_id: attribution.link_id ?? undefined,
-      campaign_id: attribution.campaign_id ?? undefined,
-      partner_id: target.partner_id,
-      tenant_id: attribution.tenant_id ?? undefined,
-      app: attribution.app,
-      platform: attribution.platform,
-      channel: attribution.channel ?? undefined,
-      source_system: "ATTRIBUTION_ADMIN",
-      metadata: {
-        from_partner: attribution.partner_name_snapshot,
-        to_partner: target.name,
-        reason: input.reason,
-        actor: input.actor,
-        note: "Original event history preserved",
-      },
-    });
-    attribution.partner_id = target.partner_id;
-    attribution.partner_name_snapshot = target.name;
-    attribution.partner_type_snapshot = target.partner_type;
-    attribution.status = "OVERRIDDEN";
-    attribution.attributed_at = attribution.attributed_at ?? occurred_at;
+    recordOverride(attribution, target, input.reason, input.actor, new Date().toISOString());
     notifyStore();
     return clone(attribution);
   },
@@ -495,7 +477,12 @@ export const attributionProvider = {
   },
   async updateRules(patch: Partial<AttributionRulesConfig>): Promise<AttributionRulesConfig> {
     await latency();
+    const changed = (Object.keys(patch) as (keyof AttributionRulesConfig)[]).some(
+      (k) => patch[k] !== undefined && patch[k] !== store.rules[k],
+    );
     Object.assign(store.rules, patch);
+    // A behavioural change creates a new rules version; history keeps its old version.
+    if (changed) store.rulesVersion = bumpRulesVersion(store.rulesVersion);
     notifyStore();
     return clone(store.rules);
   },
@@ -713,6 +700,23 @@ export type SimulationStep =
   | "SUBSCRIPTION_STARTED"
   | "FIRST_PAYMENT";
 
+/** One entry in the Technical Journey: what crossed a production boundary. */
+export interface TechnicalEntry {
+  id: string;
+  step: SimulationStep | "RETRY";
+  title: string;
+  actor: string;
+  request_line: string;
+  payload: unknown;
+  pipeline: PipelineStep[];
+  status: number;
+  response: unknown;
+  correlation: CorrelationHop[];
+  counts_before: RepositoryCounts;
+  counts_after: RepositoryCounts;
+  committed: boolean;
+}
+
 export interface SimulationState {
   attribution_id: string;
   link_id: string;
@@ -722,6 +726,9 @@ export interface SimulationState {
   click?: Click;
   install?: Install;
   redirect_target?: string;
+  technical: TechnicalEntry[];
+  /** Last ingested event request (for "Retry Last Event"). */
+  last_request?: { request: IngestEventRequest; credential: ServiceCredential; step: SimulationStep };
 }
 
 export class LinkUnavailableError extends Error {
@@ -729,6 +736,36 @@ export class LinkUnavailableError extends Error {
     super("This link is disabled and cannot start a new journey.");
     this.name = "LinkUnavailableError";
   }
+}
+
+/**
+ * Simulated devices/services. Each holds only what the real client would hold:
+ * the phone keeps the Install Referrer (aur_at) Google Play handed it, the
+ * signup service knows its user/signup IDs, billing knows its transactions.
+ */
+interface DeviceMemory {
+  acquisition_token?: string | undefined;
+  acquisition_session_id?: string | undefined;
+  install_id?: string | undefined;
+  user_id?: string | undefined;
+  signup_id?: string | undefined;
+  tenant_id?: string | undefined;
+  subscription_id?: string | undefined;
+  price_version_id?: string | undefined;
+  amount?: number | undefined;
+}
+const devices = new Map<string, DeviceMemory>();
+const sourceEventId = (prefix: string) =>
+  `${prefix}-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+
+export interface StepOptions {
+  failBeforeCommit?: boolean | undefined;
+  /** Contract testing: override the source-reported event time. */
+  occurred_at?: string | undefined;
+  /** Contract testing: add untrusted client-supplied fields. */
+  untrusted?: Partial<IngestEventRequest> | undefined;
+  /** Contract testing: replace the device's acquisition token. */
+  acquisition_token?: string | undefined;
 }
 
 export const simulationProvider = {
@@ -773,6 +810,7 @@ export const simulationProvider = {
       overrides: [],
     };
     store.attributions.push(attribution);
+    devices.set(attribution.attribution_id, {});
     notifyStore();
     return {
       attribution_id: attribution.attribution_id,
@@ -780,296 +818,225 @@ export const simulationProvider = {
       token: link.token,
       platform,
       completed: [],
+      technical: [],
     };
   },
 
-  async step(state: SimulationState, step: SimulationStep): Promise<SimulationState> {
+  async step(
+    state: SimulationState,
+    step: SimulationStep,
+    options: StepOptions = {},
+  ): Promise<SimulationState> {
     await latency();
     const attribution = store.attributions.find((a) => a.attribution_id === state.attribution_id)!;
     const link = store.links.find((l) => l.link_id === state.link_id)!;
-    const now = new Date().toISOString();
-    /** Ask the authoritative engine using the session's recorded facts. */
-    const resolve = (at: string) => {
-      const install = store.installs.find((i) => i.session_id === attribution.session_id);
-      const res = runRules({
-        acquisitionFacts: store.clicks.filter((c) => c.session_id === attribution.session_id),
-        installSignal: install ? installSignalFor(install.platform, install.occurred_at) : null,
-        referenceTime: at,
-        rules: store.rules,
-        partnerName: partnerNameOf,
-      });
-      applyResolution(attribution, res);
-      return res;
-    };
-    /** Correlation fields from the CURRENT resolution, not from the link. */
-    const ctx = () => ({
-      attribution_id: attribution.attribution_id,
-      session_id: attribution.session_id,
-      link_id: attribution.link_id ?? undefined,
-      campaign_id: attribution.campaign_id ?? undefined,
-      partner_id: attribution.partner_id ?? undefined,
-      app: link.app,
-      platform: state.platform,
-      channel: attribution.channel ?? undefined,
-    });
-    const clickFields = {
-      attribution_id: attribution.attribution_id,
-      session_id: attribution.session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      app: link.app,
-      platform: state.platform,
-      channel: link.channel,
-    };
-    if (step === "CLICK" && link.status !== "ACTIVE") throw new LinkUnavailableError(link.link_id);
-    const next: SimulationState = {
-      ...state,
-      completed: state.completed.includes(step) ? state.completed : [...state.completed, step],
-    };
-    const hasEvent = (t: AttributionEvent["event_type"]) =>
-      store.events.some(
-        (e) => e.attribution_id === attribution.attribution_id && e.event_type === t,
-      );
-
-    // Simulator-level idempotency: naturally singular stages happen once per journey.
-    const alreadyDone =
-      (step === "INSTALL" && store.installs.some((i) => i.session_id === attribution.session_id)) ||
-      (step === "FIRST_OPEN" && hasEvent("FIRST_OPEN")) ||
-      (step === "SIGNUP_STARTED" && !!attribution.signup_id) ||
-      (step === "SIGNUP_COMPLETED" && !!attribution.signup_at) ||
-      (step === "TENANT_CREATED" && !!attribution.tenant_id) ||
-      (step === "TENANT_ACTIVATED" && !!attribution.activated_at) ||
-      (step === "SUBSCRIPTION_STARTED" && !!attribution.subscription) ||
-      (step === "FIRST_PAYMENT" && !!attribution.first_payment);
-    if (alreadyDone) return next;
+    const device = devices.get(state.attribution_id) ?? {};
+    devices.set(state.attribution_id, device);
+    const repo = simulatedBackend.repository;
+    const next: SimulationState = { ...state, technical: [...(state.technical ?? [])] };
+    const before = repo.counts();
 
     if (step === "CLICK") {
-      const click: Click = {
-        click_id: nextId("CLK", 5),
-        session_id: attribution.session_id,
-        link_id: link.link_id,
+      if (link.status !== "ACTIVE") throw new LinkUnavailableError(link.link_id);
+      const out = simulatedBackend.redirect({
         token: link.token,
-        campaign_id: link.campaign_id,
-        partner_id: link.partner_id,
-        channel: link.channel,
-        app: link.app,
         platform: state.platform,
-        user_agent:
-          state.platform === "ANDROID"
-            ? "Mozilla/5.0 (Linux; Android 14; SM-M356B) Chrome/128 Mobile"
-            : state.platform === "IOS"
-              ? "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1) Safari/605.1.15"
-              : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128",
-        occurred_at: now,
-        redirect_target: redirectTargetFor(link.app, state.platform),
-      };
-      store.clicks.push(click);
-      resolve(now);
-      pushEvent({
-        event_type: "LINK_CLICKED",
-        occurred_at: now,
-        ...clickFields,
-        click_id: click.click_id,
-        source_system: "AURUMI_NATIVE_ATTRIBUTION",
-        metadata: { token: link.token, user_agent: click.user_agent, simulated: true },
+        device_session_id: attribution.session_id,
       });
-      pushEvent({
-        event_type: "STORE_REDIRECTED",
-        occurred_at: now,
-        ...clickFields,
-        click_id: click.click_id,
-        source_system: "REDIRECT_SERVICE",
-        metadata: { target: click.redirect_target, destination: link.destination, simulated: true },
+      if (out.error?.code === "LINK_DISABLED") throw new LinkUnavailableError(link.link_id);
+      next.technical.push({
+        id: nextId("TXN", 5),
+        step,
+        title: "Redirect Service",
+        actor: "Customer's browser",
+        request_line: `GET go.aurumi.ai/x/${link.token}`,
+        payload: null,
+        pipeline: out.pipeline,
+        status: out.http.status,
+        response: out.error
+          ? { success: false, error: out.error, location: out.location }
+          : { status: "302 REDIRECT", location: out.location, referrer: out.referrer },
+        correlation: out.click_id
+          ? [
+              { label: "Click", value: out.click_id },
+              { label: "Acquisition session", value: out.acquisition_session_id ?? "—" },
+              { label: "Acquisition token", value: out.acquisition_token ?? "—" },
+            ]
+          : [],
+        counts_before: before,
+        counts_after: repo.counts(),
+        committed: !out.error,
       });
-      next.click = click;
-      next.redirect_target = click.redirect_target;
+      if (out.error) {
+        notifyStore();
+        throw new Error(out.error.message);
+      }
+      // Google Play holds the referrer for the device until first launch.
+      device.acquisition_token = out.acquisition_token ?? undefined;
+      device.acquisition_session_id = out.acquisition_session_id ?? undefined;
+      next.click = clone(store.clicks.find((c) => c.click_id === out.click_id)!);
+      next.redirect_target = next.click.redirect_target;
+      next.completed = next.completed.includes(step) ? next.completed : [...next.completed, step];
+      notifyStore();
+      return next;
     }
 
-    if (step === "INSTALL") {
-      const signal = installSignalFor(state.platform, now);
-      const deterministic = signal.referrer_recovered;
-      const install: Install = {
-        install_id: nextId("INS", 5),
-        click_id: null,
-        session_id: attribution.session_id,
-        app: link.app,
-        platform: state.platform,
-        attribution_method: "UNATTRIBUTED",
-        attribution_source: "NONE",
-        referrer_recovered: deterministic,
-        occurred_at: now,
-      };
-      store.installs.push(install);
-      attribution.install_id = install.install_id;
-      const res = resolve(now);
-      install.click_id = res.click_id;
-      install.attribution_method = res.attribution_method;
-      install.attribution_source = res.attribution_source;
-      pushEvent({
-        event_type: res.status === "ATTRIBUTED" ? "INSTALL_ATTRIBUTED" : "INSTALL_UNATTRIBUTED",
-        occurred_at: now,
-        ...ctx(),
-        click_id: attribution.click_id ?? undefined,
-        install_id: install.install_id,
-        attribution_method: install.attribution_method,
-        source_system: "AURUMI_NATIVE_ATTRIBUTION",
-        metadata: {
-          method_detail: deterministic
-            ? "Play Install Referrer"
-            : "Provider-dependent / future capability",
-          referrer: deterministic ? "Recovered successfully" : "Not available",
-          simulated: true,
-        },
-      });
-      next.install = install;
+    const built = buildRequest(step, state, attribution, device, options);
+    const outcome = simulatedBackend.ingestEvent(built.request, built.credential, {
+      failBeforeCommit: options.failBeforeCommit,
+    });
+    next.last_request = { ...built, step };
+    next.technical.push(technicalFor(step, built, outcome, before, repo.counts()));
+    if (outcome.committed) {
+      next.completed = next.completed.includes(step) ? next.completed : [...next.completed, step];
+      if (step === "INSTALL") {
+        const install = store.installs.find((i) => i.install_id === attribution.install_id);
+        if (install) next.install = clone(install);
+      }
     }
-
-    if (step === "FIRST_OPEN") {
-      pushEvent({
-        event_type: "FIRST_OPEN",
-        occurred_at: now,
-        ...ctx(),
-        click_id: attribution.click_id ?? undefined,
-        install_id: attribution.install_id ?? undefined,
-        source_system: "APP_SDK",
-        metadata: { attribution_context: "restored", simulated: true },
-      });
-    }
-
-    if (step === "SIGNUP_STARTED") {
-      attribution.user_id = nextId("U", 6);
-      attribution.signup_id = nextId("SGN", 5);
-      pushEvent({
-        event_type: "SIGNUP_STARTED",
-        occurred_at: now,
-        ...ctx(),
-        install_id: attribution.install_id ?? undefined,
-        user_id: attribution.user_id,
-        signup_id: attribution.signup_id,
-        source_system: "SIGNUP_SERVICE",
-        metadata: { simulated: true },
-      });
-    }
-
-    if (step === "SIGNUP_COMPLETED") {
-      attribution.signup_at = now;
-      attribution.first_conversion_at = now;
-      attribution.tenant_name = attribution.tenant_name ?? "Simulated Prospect Pvt Ltd";
-      attribution.contact_email = "simulated.prospect@example.in";
-      pushEvent({
-        event_type: "SIGNUP_COMPLETED",
-        occurred_at: now,
-        ...ctx(),
-        user_id: attribution.user_id ?? undefined,
-        signup_id: attribution.signup_id ?? undefined,
-        source_system: "SIGNUP_SERVICE",
-        metadata: { email: attribution.contact_email, simulated: true },
-      });
-    }
-
-    if (step === "TENANT_CREATED") {
-      attribution.tenant_id = nextId("T", 6);
-      attribution.tenant_created_at = now;
-      pushEvent({
-        event_type: "TENANT_CREATED",
-        occurred_at: now,
-        ...ctx(),
-        user_id: attribution.user_id ?? undefined,
-        tenant_id: attribution.tenant_id,
-        source_system: "TENANT_SERVICE",
-        metadata: { tenant_name: attribution.tenant_name, simulated: true },
-      });
-      const res = resolve(now);
-      pushEvent({
-        event_type: "ATTRIBUTION_RESOLVED",
-        occurred_at: now,
-        ...ctx(),
-        tenant_id: attribution.tenant_id,
-        attribution_method: res.attribution_method,
-        source_system: "ATTRIBUTION_ENGINE",
-        metadata: {
-          rule: store.rules.conflict_rule,
-          eligible_clicks: res.eligible_click_count,
-          resolution_reason: res.resolution_reason,
-          simulated: true,
-        },
-      });
-    }
-
-    if (step === "TENANT_ACTIVATED") {
-      attribution.activated_at = now;
-      pushEvent({
-        event_type: "TENANT_ACTIVATED",
-        occurred_at: now,
-        ...ctx(),
-        tenant_id: attribution.tenant_id ?? undefined,
-        source_system: "TENANT_SERVICE",
-        metadata: { simulated: true },
-      });
-    }
-
-    if (step === "SUBSCRIPTION_STARTED") {
-      const priceVersion =
-        store.priceVersions.find(
-          (pv) => store.plans.find((p) => p.plan_id === pv.plan_id)?.app === link.app,
-        ) ?? store.priceVersions[0]!;
-      attribution.subscription = {
-        subscription_id: nextId("SUB", 5),
-        plan_id: priceVersion.plan_id,
-        price_version_id: priceVersion.price_version_id,
-        started_at: now,
-      };
-      pushEvent({
-        event_type: "SUBSCRIPTION_STARTED",
-        occurred_at: now,
-        ...ctx(),
-        tenant_id: attribution.tenant_id ?? undefined,
-        source_system: "BILLING_SERVICE",
-        metadata: {
-          plan_id: priceVersion.plan_id,
-          plan_name: store.plans.find((p) => p.plan_id === priceVersion.plan_id)?.name ?? "",
-          price_version_id: priceVersion.price_version_id,
-          subscription_id: attribution.subscription.subscription_id,
-          pricing_source: "PRICE_ADMIN",
-          simulated: true,
-        },
-      });
-    }
-
-    if (step === "FIRST_PAYMENT") {
-      const pv = store.priceVersions.find(
-        (p) => p.price_version_id === attribution.subscription?.price_version_id,
-      );
-      attribution.first_payment = {
-        transaction_id: nextId("TX", 5),
-        amount: pv?.amount ?? 2499,
-        currency: "INR",
-        occurred_at: now,
-      };
-      attribution.commercial_conversion_at = now;
-      pushEvent({
-        event_type: "FIRST_PAYMENT",
-        occurred_at: now,
-        ...ctx(),
-        tenant_id: attribution.tenant_id ?? undefined,
-        source_system: "BILLING_SERVICE",
-        metadata: {
-          transaction_id: attribution.first_payment.transaction_id,
-          amount: attribution.first_payment.amount,
-          currency: "INR",
-          subscription_id: attribution.subscription?.subscription_id ?? null,
-          commission_calculation: "handled externally",
-          simulated: true,
-        },
-      });
-    }
-
     notifyStore();
     return next;
+  },
+
+  /** Re-submit the exact last event (same source_system + source_event_id). */
+  async retryLast(state: SimulationState): Promise<SimulationState> {
+    await latency();
+    if (!state.last_request) return state;
+    const repo = simulatedBackend.repository;
+    const before = repo.counts();
+    const outcome = simulatedBackend.ingestEvent(
+      state.last_request.request,
+      state.last_request.credential,
+    );
+    const entry = technicalFor("RETRY", state.last_request, outcome, before, repo.counts());
+    entry.title = `Retry — ${entry.title}`;
+    notifyStore();
+    return { ...state, technical: [...state.technical, entry] };
   },
 
   async getAttribution(id: string): Promise<Attribution | null> {
     return attributionProvider.getAttribution(id);
   },
 };
+
+const STEP_EVENT: Record<Exclude<SimulationStep, "CLICK">, IngestEventType> = {
+  INSTALL: "INSTALL_REFERRER_RECEIVED",
+  FIRST_OPEN: "FIRST_OPEN",
+  SIGNUP_STARTED: "SIGNUP_STARTED",
+  SIGNUP_COMPLETED: "SIGNUP_COMPLETED",
+  TENANT_CREATED: "TENANT_CREATED",
+  TENANT_ACTIVATED: "TENANT_ACTIVATED",
+  SUBSCRIPTION_STARTED: "SUBSCRIPTION_STARTED",
+  FIRST_PAYMENT: "FIRST_PAYMENT",
+};
+
+function buildRequest(
+  step: SimulationStep,
+  state: SimulationState,
+  attribution: Attribution,
+  device: DeviceMemory,
+  options: StepOptions,
+): { request: IngestEventRequest; credential: ServiceCredential } {
+  const event_type = STEP_EVENT[step as Exclude<SimulationStep, "CLICK">];
+  const occurred_at = options.occurred_at ?? new Date().toISOString();
+  const base = { event_type, occurred_at, app: attribution.app, platform: state.platform };
+  let request: IngestEventRequest;
+  if (step === "INSTALL" || step === "FIRST_OPEN") {
+    device.install_id = device.install_id ?? nextId("INS", 5);
+    const token = options.acquisition_token ?? device.acquisition_token;
+    const source = appSourceFor(attribution.app, state.platform);
+    request = {
+      ...base,
+      source_system: source,
+      source_event_id: sourceEventId("evt-device"),
+      install_id: device.install_id,
+      // iOS has no Install Referrer: only provider-dependent matching signals.
+      ...(state.platform === "IOS" && !options.acquisition_token
+        ? { match_hint: attribution.session_id }
+        : { acquisition_token: token }),
+    };
+  } else if (step === "SIGNUP_STARTED" || step === "SIGNUP_COMPLETED") {
+    device.user_id = device.user_id ?? nextId("U", 6);
+    device.signup_id = device.signup_id ?? nextId("SGN", 5);
+    request = {
+      ...base,
+      source_system: "SIGNUP_SERVICE",
+      source_event_id: sourceEventId("sgn-evt"),
+      user_id: device.user_id,
+      signup_id: device.signup_id,
+      install_id: device.install_id,
+      acquisition_session_id: device.acquisition_session_id,
+      ...(step === "SIGNUP_COMPLETED"
+        ? { contact_email: "simulated.prospect@example.in", tenant_name: "Simulated Prospect Pvt Ltd" }
+        : {}),
+    };
+  } else if (step === "TENANT_CREATED" || step === "TENANT_ACTIVATED") {
+    device.tenant_id = device.tenant_id ?? nextId("T", 6);
+    request = {
+      ...base,
+      source_system: "TENANT_SERVICE",
+      source_event_id: sourceEventId("tnt-evt"),
+      tenant_id: device.tenant_id,
+      user_id: device.user_id,
+    };
+  } else {
+    // Billing is authoritative for commercial facts; Price Admin owns the price.
+    const pv =
+      store.priceVersions.find(
+        (p) => store.plans.find((pl) => pl.plan_id === p.plan_id)?.app === attribution.app,
+      ) ?? store.priceVersions[0]!;
+    device.subscription_id = device.subscription_id ?? nextId("SUB", 5);
+    device.price_version_id = pv.price_version_id;
+    request = {
+      ...base,
+      source_system: "BILLING_SERVICE",
+      source_event_id: sourceEventId("bill-evt"),
+      tenant_id: device.tenant_id ?? attribution.tenant_id ?? undefined,
+      subscription_id: device.subscription_id,
+      plan_id: pv.plan_id,
+      price_version_id: pv.price_version_id,
+      ...(step === "FIRST_PAYMENT"
+        ? { transaction_id: nextId("TX", 5), amount: pv.amount, currency: "INR" as const }
+        : {}),
+    };
+  }
+  if (options.untrusted) request = { ...request, ...options.untrusted };
+  return { request, credential: { source_system: request.source_system } };
+}
+
+const ACTOR: Record<string, string> = {
+  SIGNUP_SERVICE: "Signup Service",
+  TENANT_SERVICE: "Tenant Service",
+  BILLING_SERVICE: "Billing Service",
+};
+
+function technicalFor(
+  step: SimulationStep | "RETRY",
+  built: { request: IngestEventRequest; credential: ServiceCredential },
+  outcome: IngestOutcome,
+  before: RepositoryCounts,
+  after: RepositoryCounts,
+): TechnicalEntry {
+  const body = outcome.http.body;
+  const src = built.request.source_system;
+  return {
+    id: nextId("TXN", 5),
+    step,
+    title: `Attribution Ingestion API · ${built.request.event_type}`,
+    actor: ACTOR[src] ?? `${titleApp(src)} app (${src})`,
+    request_line: `POST /api/v1/attribution/events`,
+    payload: built.request,
+    pipeline: outcome.pipeline,
+    status: outcome.http.status,
+    response: body,
+    correlation: body.success ? body.data.correlation : [],
+    counts_before: before,
+    counts_after: after,
+    committed: outcome.committed,
+  };
+}
+
+function titleApp(source: string): string {
+  const app = source.split("_")[0] ?? source;
+  return app.charAt(0) + app.slice(1).toLowerCase();
+}

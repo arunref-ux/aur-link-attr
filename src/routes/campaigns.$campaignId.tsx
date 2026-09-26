@@ -13,7 +13,8 @@ import {
   StatusPill,
   TraceLink,
 } from "@/components/bits";
-import { attributionProvider, demoProvider, partnerProvider } from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
+import { demoProvider, partnerProvider } from "@/providers";
 import {
   APP_LABEL,
   CHANNEL_LABEL,
@@ -47,23 +48,23 @@ function CampaignDetailPage() {
   const { campaignId } = Route.useParams();
   const { data: campaign } = useQuery({
     queryKey: ["campaign", campaignId],
-    queryFn: () => attributionProvider.getCampaign(campaignId),
+    queryFn: () => attributionClient.getCampaign(campaignId),
   });
   const { data: performance } = useQuery({
     queryKey: ["campaign-performance", campaignId],
-    queryFn: () => attributionProvider.getCampaignPerformance(campaignId),
+    queryFn: () => attributionClient.getCampaignPerformance(campaignId),
   });
   const { data: links } = useQuery({
     queryKey: ["links", { campaignId }],
-    queryFn: () => attributionProvider.listLinks({ campaign_id: campaignId }),
+    queryFn: () => attributionClient.listLinks({ campaign_id: campaignId }),
   });
   const { data: attributions } = useQuery({
     queryKey: ["attributions", { campaignId }],
-    queryFn: () => attributionProvider.listAttributions({ campaign_id: campaignId }),
+    queryFn: () => attributionClient.listAttributions({ campaign_id: campaignId }),
   });
   const { data: events } = useQuery({
     queryKey: ["campaign-events", campaignId],
-    queryFn: () => attributionProvider.listEvents({ campaign_id: campaignId }),
+    queryFn: () => attributionClient.listEvents({ campaign_id: campaignId }),
   });
   const { data: partner } = useQuery({
     queryKey: ["partner", campaign?.associated_partner_id],

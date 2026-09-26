@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { attributionProvider } from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
 import { labelForRule } from "@/lib/attribution-rules";
 import { titleCase } from "@/lib/format";
 import type { AttributionRulesConfig } from "@/domain/types";
@@ -42,19 +42,19 @@ export const Route = createFileRoute("/configuration")({
 function ConfigurationPage() {
   const { data: rules } = useQuery({
     queryKey: ["rules"],
-    queryFn: () => attributionProvider.getRules(),
+    queryFn: () => attributionClient.getRules(),
   });
   const { data: providers } = useQuery({
     queryKey: ["providers"],
-    queryFn: () => attributionProvider.listProviders(),
+    queryFn: () => attributionClient.listProviders(),
   });
   const { data: domains } = useQuery({
     queryKey: ["domains"],
-    queryFn: () => attributionProvider.listDomains(),
+    queryFn: () => attributionClient.listDomains(),
   });
 
   async function patch(update: Partial<AttributionRulesConfig>, message: string) {
-    await attributionProvider.updateRules(update);
+    await attributionClient.updateRules(update);
     toast.success(message);
   }
 

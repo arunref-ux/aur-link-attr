@@ -16,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { attributionProvider, type LinkRow } from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
+import { type LinkRow } from "@/providers";
 import { APP_LABEL, CHANNEL_LABEL, DESTINATION_LABEL, formatDate } from "@/lib/format";
 import type { AppName, Channel } from "@/domain/types";
 
@@ -51,7 +52,7 @@ function LinksPage() {
   const { data: links } = useQuery({
     queryKey: ["links", { query, channel, app, status }],
     queryFn: () =>
-      attributionProvider.listLinks({
+      attributionClient.listLinks({
         query,
         channel: channel === "all" ? undefined : (channel as Channel),
         app: app === "all" ? undefined : (app as AppName),
@@ -199,7 +200,7 @@ function LinksPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => {
-                            void attributionProvider.setLinkStatus(
+                            void attributionClient.setLinkStatus(
                               l.link_id,
                               l.status === "ACTIVE" ? "DISABLED" : "ACTIVE",
                             );

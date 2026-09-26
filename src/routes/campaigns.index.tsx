@@ -24,7 +24,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { attributionProvider, partnerProvider } from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
+import { partnerProvider } from "@/providers";
 import { APP_LABEL, CHANNEL_LABEL, DESTINATION_LABEL, formatDate } from "@/lib/format";
 import type { AppName, Channel, DestinationType } from "@/domain/types";
 
@@ -51,7 +52,7 @@ function CampaignsPage() {
   const [open, setOpen] = useState(false);
   const { data: campaigns } = useQuery({
     queryKey: ["campaigns"],
-    queryFn: () => attributionProvider.listCampaigns(),
+    queryFn: () => attributionClient.listCampaigns(),
   });
   const { data: partners } = useQuery({
     queryKey: ["partners"],
@@ -150,7 +151,7 @@ function NewCampaignDialog({
       toast.error("Campaign name is required");
       return;
     }
-    await attributionProvider.createCampaign({
+    await attributionClient.createCampaign({
       name: name.trim(),
       description: description.trim(),
       target_app: app,

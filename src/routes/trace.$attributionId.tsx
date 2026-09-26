@@ -41,7 +41,8 @@ import {
   formatTime,
   titleCase,
 } from "@/lib/format";
-import { attributionProvider, partnerProvider } from "@/providers";
+import { attributionClient } from "@/client/attribution-client";
+import { partnerProvider } from "@/providers";
 
 export const Route = createFileRoute("/trace/$attributionId")({
   head: () => ({
@@ -69,19 +70,19 @@ function TraceDetailPage() {
 
   const { data: attribution } = useQuery({
     queryKey: ["attribution", attributionId],
-    queryFn: () => attributionProvider.getAttribution(attributionId),
+    queryFn: () => attributionClient.getAttribution(attributionId),
   });
   const { data: events } = useQuery({
     queryKey: ["events", attributionId],
-    queryFn: () => attributionProvider.listEvents({ attribution_id: attributionId }),
+    queryFn: () => attributionClient.listEvents({ attribution_id: attributionId }),
   });
   const { data: campaigns } = useQuery({
     queryKey: ["campaigns"],
-    queryFn: () => attributionProvider.listCampaigns(),
+    queryFn: () => attributionClient.listCampaigns(),
   });
   const { data: links } = useQuery({
     queryKey: ["links"],
-    queryFn: () => attributionProvider.listLinks(),
+    queryFn: () => attributionClient.listLinks(),
   });
 
   if (!attribution) {
@@ -448,7 +449,7 @@ function OverrideDialog({
       toast.error("Choose a partner and give a reason (at least 10 characters)");
       return;
     }
-    await attributionProvider.overrideAttribution({
+    await attributionClient.overrideAttribution({
       attribution_id: attributionId,
       to_partner_id: toPartner,
       reason: reason.trim(),

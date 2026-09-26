@@ -10,7 +10,6 @@ import type {
   Attribution,
   AttributionEvent,
   AttributionLink,
-  AttributionMethod,
   AttributionRulesConfig,
   AppName,
   Campaign,
@@ -26,6 +25,12 @@ import type {
   PriceVersion,
   ProviderDescriptor,
 } from "@/domain/types";
+import {
+  resolveAttribution,
+  type AttributionClaim,
+  type InstallSignal,
+  type ResolutionOutput,
+} from "@/lib/attribution-rules";
 
 export interface StoreShape {
   partners: Partner[];
@@ -518,17 +523,22 @@ const STAGES = [
 export type JourneyStage = (typeof STAGES)[number];
 
 interface JourneySeed {
-  link_id: string;
+  /** Acquisition link the prospect clicked. `null` = journey began without any link (organic/direct). */
+  link_id: string | null;
+  /** Required when link_id is null. */
+  app?: AppName | undefined;
   start: Date;
   platform: Platform;
   tenant_name: string;
   email: string;
   reach: JourneyStage;
-  method?: AttributionMethod | undefined;
   price_version_id?: string | undefined;
-  unattributed?: boolean | undefined;
-  claimed_code?: string | undefined;
+  /** Referral code the user typed at signup (a fact; the engine decides if it counts). */
+  claim?: { partner_id: string; code: string } | undefined;
+  /** Platform failed to return the click token (e.g. web session token lost). */
+  referrer_lost?: boolean | undefined;
   extraClicks?: number | undefined;
+  /** An earlier click on another link in the same session (competing fact). */
   conflictWithLinkId?: string | undefined;
   overrideTo?: { partner_id: string; reason: string; actor: string };
 }
@@ -558,61 +568,21 @@ function reached(reach: JourneyStage, stage: JourneyStage) {
   return STAGES.indexOf(stage) <= STAGES.indexOf(reach);
 }
 
-function buildJourney(seed: JourneySeed): Attribution {
-  const link = store.links.find((l) => l.link_id === seed.link_id)!;
-  const campaign = store.campaigns.find((c) => c.campaign_id === link.campaign_id)!;
-  const partner = store.partners.find((p) => p.partner_id === link.partner_id) ?? null;
-  const session_id = nextId("SES", 5);
-  const base = seed.start;
+export function partnerNameOf(id: string): string | null {
+  return store.partners.find((p) => p.partner_id === id)?.name ?? null;
+}
 
-  const method: AttributionMethod = seed.unattributed
-    ? "UNATTRIBUTED"
-    : (seed.method ??
-      (seed.platform === "ANDROID"
-        ? "DETERMINISTIC"
-        : seed.platform === "WEB"
-          ? "DETERMINISTIC"
-          : "MATCHED"));
+/** Deterministic install signal availability is a platform FACT, not a decision. */
+export function installSignalFor(platform: Platform, occurred_at: string, referrer_lost = false): InstallSignal {
+  return {
+    platform,
+    occurred_at,
+    referrer_recovered: platform === "IOS" ? false : !referrer_lost,
+  };
+}
 
-  const attribution_id = nextId("ATR", 5);
-
-  /* Conflicting click from another partner's link, resolved by the rule. */
-  let conflictClick: Click | null = null;
-  if (seed.conflictWithLinkId) {
-    const other = store.links.find((l) => l.link_id === seed.conflictWithLinkId)!;
-    conflictClick = {
-      click_id: nextId("CLK", 5),
-      session_id,
-      link_id: other.link_id,
-      token: other.token,
-      campaign_id: other.campaign_id,
-      partner_id: other.partner_id,
-      channel: other.channel,
-      app: other.app,
-      platform: seed.platform,
-      user_agent: userAgentFor(seed.platform),
-      occurred_at: iso(base, -95),
-      redirect_target: redirectTargetFor(other.app, seed.platform),
-    };
-    store.clicks.push(conflictClick);
-    pushEvent({
-      event_type: "LINK_CLICKED",
-      occurred_at: conflictClick.occurred_at,
-      attribution_id,
-      click_id: conflictClick.click_id,
-      session_id,
-      link_id: other.link_id,
-      campaign_id: other.campaign_id,
-      partner_id: other.partner_id ?? undefined,
-      app: other.app,
-      platform: seed.platform,
-      channel: other.channel,
-      source_system: "AURUMI_NATIVE_ATTRIBUTION",
-      metadata: { token: other.token, note: "Competing click from a different partner link" },
-    });
-  }
-
-  const click: Click = {
+function makeClick(link: AttributionLink, session_id: string, platform: Platform, at: string): Click {
+  return {
     click_id: nextId("CLK", 5),
     session_id,
     link_id: link.link_id,
@@ -621,114 +591,206 @@ function buildJourney(seed: JourneySeed): Attribution {
     partner_id: link.partner_id,
     channel: link.channel,
     app: link.app,
-    platform: seed.platform,
-    user_agent: userAgentFor(seed.platform),
-    occurred_at: iso(base, 0),
-    redirect_target: redirectTargetFor(link.app, seed.platform),
+    platform,
+    user_agent: userAgentFor(platform),
+    occurred_at: at,
+    redirect_target: redirectTargetFor(link.app, platform),
   };
-  store.clicks.push(click);
+}
 
-  pushEvent({
-    event_type: "LINK_CLICKED",
-    occurred_at: click.occurred_at,
-    attribution_id,
-    click_id: click.click_id,
-    session_id,
-    link_id: link.link_id,
-    campaign_id: link.campaign_id,
-    partner_id: link.partner_id ?? undefined,
-    app: link.app,
-    platform: seed.platform,
-    channel: link.channel,
-    source_system: "AURUMI_NATIVE_ATTRIBUTION",
-    metadata: {
-      token: link.token,
-      user_agent: click.user_agent,
-      short_url: link.short_url,
-    },
-  });
+/** Apply an engine result onto the current attribution projection. */
+export function applyResolution(attribution: Attribution, res: ResolutionOutput) {
+  const partner = res.partner_id
+    ? (store.partners.find((p) => p.partner_id === res.partner_id) ?? null)
+    : null;
+  const link = res.link_id ? store.links.find((l) => l.link_id === res.link_id) : undefined;
+  attribution.partner_id = res.partner_id;
+  attribution.partner_name_snapshot = partner?.name ?? null;
+  attribution.partner_type_snapshot = partner?.partner_type ?? null;
+  attribution.campaign_id = res.campaign_id;
+  attribution.link_id = res.link_id;
+  attribution.click_id = res.click_id;
+  attribution.channel = link?.channel ?? null;
+  attribution.attribution_method = res.attribution_method;
+  attribution.attribution_source = res.attribution_source;
+  attribution.resolution_reason = res.resolution_reason;
+  attribution.resolution_timestamp = res.resolved_at;
+  attribution.status = res.status;
+  attribution.attributed_at = res.status === "ATTRIBUTED" ? res.resolved_at : null;
+}
 
-  for (let i = 0; i < (seed.extraClicks ?? 0); i += 1) {
+function buildJourney(seed: JourneySeed): Attribution {
+  const link = seed.link_id ? store.links.find((l) => l.link_id === seed.link_id)! : null;
+  const app: AppName = link?.app ?? seed.app ?? "AURUMI";
+  const session_id = nextId("SES", 5);
+  const base = seed.start;
+  const attribution_id = nextId("ATR", 5);
+
+  /* ---------------- 1. Generate acquisition FACTS only ---------------- */
+  const clicks: Click[] = [];
+
+  const recordClick = (l: AttributionLink, at: string, note?: string) => {
+    const click = makeClick(l, session_id, seed.platform, at);
+    store.clicks.push(click);
+    clicks.push(click);
     pushEvent({
       event_type: "LINK_CLICKED",
-      occurred_at: iso(base, 3 + i * 7),
+      occurred_at: at,
       attribution_id,
       click_id: click.click_id,
       session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      app: link.app,
+      link_id: l.link_id,
+      campaign_id: l.campaign_id,
+      partner_id: l.partner_id ?? undefined,
+      app: l.app,
       platform: seed.platform,
-      channel: link.channel,
+      channel: l.channel,
       source_system: "AURUMI_NATIVE_ATTRIBUTION",
-      metadata: { token: link.token, duplicate_click: true, deduplicated_to: click.click_id },
+      metadata: note
+        ? { token: l.token, note }
+        : { token: l.token, user_agent: click.user_agent, short_url: l.short_url },
     });
+    pushEvent({
+      event_type: "STORE_REDIRECTED",
+      occurred_at: iso(new Date(at), 0.3),
+      attribution_id,
+      click_id: click.click_id,
+      session_id,
+      link_id: l.link_id,
+      campaign_id: l.campaign_id,
+      partner_id: l.partner_id ?? undefined,
+      app: l.app,
+      platform: seed.platform,
+      channel: l.channel,
+      source_system: "REDIRECT_SERVICE",
+      metadata: { target: click.redirect_target, destination: l.destination },
+    });
+    return click;
+  };
+
+  if (seed.conflictWithLinkId) {
+    const other = store.links.find((l) => l.link_id === seed.conflictWithLinkId)!;
+    recordClick(other, iso(base, -95), "Click from a different partner link in the same session");
   }
 
-  pushEvent({
-    event_type: "STORE_REDIRECTED",
-    occurred_at: iso(base, 0.3),
+  if (link) {
+    const primary = recordClick(link, iso(base, 0));
+    for (let i = 0; i < (seed.extraClicks ?? 0); i += 1) {
+      pushEvent({
+        event_type: "LINK_CLICKED",
+        occurred_at: iso(base, 3 + i * 7),
+        attribution_id,
+        click_id: primary.click_id,
+        session_id,
+        link_id: link.link_id,
+        campaign_id: link.campaign_id,
+        partner_id: link.partner_id ?? undefined,
+        app: link.app,
+        platform: seed.platform,
+        channel: link.channel,
+        source_system: "AURUMI_NATIVE_ATTRIBUTION",
+        metadata: { token: link.token, duplicate_click: true, deduplicated_to: primary.click_id },
+      });
+    }
+  }
+
+  const attribution: Attribution = {
     attribution_id,
-    click_id: click.click_id,
+    partner_id: null,
+    partner_name_snapshot: null,
+    partner_type_snapshot: null,
+    campaign_id: null,
+    link_id: null,
+    click_id: null,
+    install_id: null,
     session_id,
-    link_id: link.link_id,
-    campaign_id: link.campaign_id,
-    partner_id: link.partner_id ?? undefined,
-    app: link.app,
+    user_id: null,
+    signup_id: null,
+    tenant_id: null,
+    tenant_name: null,
+    contact_email: seed.email,
+    channel: null,
+    app,
     platform: seed.platform,
-    channel: link.channel,
-    source_system: "REDIRECT_SERVICE",
-    metadata: { target: click.redirect_target, destination: link.destination },
+    attribution_method: "UNATTRIBUTED",
+    attribution_source: "NONE",
+    resolution_reason: "",
+    resolution_timestamp: iso(base, 0),
+    attributed_at: null,
+    first_conversion_at: null,
+    commercial_conversion_at: null,
+    status: "PENDING",
+    signup_at: null,
+    tenant_created_at: null,
+    activated_at: null,
+    subscription: null,
+    first_payment: null,
+    overrides: [],
+  };
+
+  /* ---------------- 2. Ask the engine ---------------- */
+  let installSignal: InstallSignal | null = null;
+  const claims: AttributionClaim[] = [];
+  const resolve = (at: string) => {
+    const res = resolveAttribution({
+      acquisitionFacts: clicks,
+      installSignal,
+      claims,
+      referenceTime: at,
+      rules: store.rules,
+      partnerName: partnerNameOf,
+    });
+    applyResolution(attribution, res);
+    return res;
+  };
+  resolve(iso(base, 0.5));
+
+  /** Shared correlation fields, taken from the current resolution. */
+  const ctx = () => ({
+    attribution_id,
+    session_id,
+    link_id: attribution.link_id ?? undefined,
+    campaign_id: attribution.campaign_id ?? undefined,
+    partner_id: attribution.partner_id ?? undefined,
+    click_id: attribution.click_id ?? undefined,
+    app,
+    platform: seed.platform,
+    channel: attribution.channel ?? undefined,
   });
 
-  let install: Install | null = null;
   if (reached(seed.reach, "INSTALL")) {
-    const deterministic = !seed.unattributed && seed.platform === "ANDROID";
-    install = {
+    const at = iso(base, 4);
+    installSignal = installSignalFor(seed.platform, at, seed.referrer_lost);
+    const res = resolve(at);
+    const install: Install = {
       install_id: nextId("INS", 5),
-      click_id: seed.unattributed ? null : click.click_id,
+      click_id: res.click_id,
       session_id,
-      app: link.app,
+      app,
       platform: seed.platform,
-      attribution_method: seed.unattributed
-        ? "UNATTRIBUTED"
-        : deterministic
-          ? "DETERMINISTIC"
-          : method,
-      attribution_source: seed.unattributed
-        ? "NONE"
-        : deterministic
-          ? "PLAY_INSTALL_REFERRER"
-          : seed.platform === "IOS"
-            ? "PROVIDER_DEPENDENT"
-            : "PRESERVED_ATTRIBUTION_TOKEN",
-      referrer_recovered: deterministic,
-      occurred_at: iso(base, 4),
+      attribution_method: res.attribution_method,
+      attribution_source: res.attribution_source,
+      referrer_recovered: installSignal.referrer_recovered && clicks.length > 0,
+      occurred_at: at,
     };
     store.installs.push(install);
+    attribution.install_id = install.install_id;
     pushEvent({
-      event_type: seed.unattributed ? "INSTALL_UNATTRIBUTED" : "INSTALL_ATTRIBUTED",
-      occurred_at: install.occurred_at,
-      attribution_id,
-      click_id: install.click_id ?? undefined,
+      event_type: res.status === "ATTRIBUTED" ? "INSTALL_ATTRIBUTED" : "INSTALL_UNATTRIBUTED",
+      occurred_at: at,
+      ...ctx(),
       install_id: install.install_id,
-      session_id,
-      link_id: seed.unattributed ? undefined : link.link_id,
-      campaign_id: seed.unattributed ? undefined : link.campaign_id,
-      partner_id: seed.unattributed ? undefined : (link.partner_id ?? undefined),
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
-      attribution_method: install.attribution_method,
+      attribution_method: res.attribution_method,
       source_system: "AURUMI_NATIVE_ATTRIBUTION",
       metadata: {
         method_detail:
-          seed.platform === "ANDROID"
-            ? "Play Install Referrer"
-            : seed.platform === "IOS"
-              ? "iOS deferred attribution — provider-dependent / future capability"
-              : "Web session token",
+          clicks.length === 0
+            ? "Organic install — no acquisition link"
+            : seed.platform === "ANDROID"
+              ? "Play Install Referrer"
+              : seed.platform === "IOS"
+                ? "iOS deferred attribution — provider-dependent / future capability"
+                : "Web session token",
         referrer: install.referrer_recovered ? "Recovered successfully" : "Not available",
       },
     });
@@ -738,132 +800,88 @@ function buildJourney(seed: JourneySeed): Attribution {
     pushEvent({
       event_type: "FIRST_OPEN",
       occurred_at: iso(base, 4.8),
-      attribution_id,
-      click_id: click.click_id,
-      install_id: install?.install_id,
-      session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
+      ...ctx(),
+      install_id: attribution.install_id ?? undefined,
       source_system: "APP_SDK",
-      metadata: { attribution_context: seed.unattributed ? "not available" : "restored" },
+      metadata: { attribution_context: attribution.link_id ? "restored" : "not available" },
     });
   }
-
-  const user_id = reached(seed.reach, "SIGNUP_STARTED") ? nextId("U", 6) : null;
-  const signup_id = reached(seed.reach, "SIGNUP_STARTED") ? nextId("SGN", 5) : null;
 
   if (reached(seed.reach, "SIGNUP_STARTED")) {
+    attribution.user_id = nextId("U", 6);
+    attribution.signup_id = nextId("SGN", 5);
+    const at = iso(base, 7);
+    if (seed.claim) {
+      claims.push({ ...seed.claim, occurred_at: at });
+      resolve(at);
+    }
     pushEvent({
       event_type: "SIGNUP_STARTED",
-      occurred_at: iso(base, 7),
-      attribution_id,
-      click_id: click.click_id,
-      install_id: install?.install_id,
-      session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      user_id: user_id ?? undefined,
-      signup_id: signup_id ?? undefined,
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
+      occurred_at: at,
+      ...ctx(),
+      install_id: attribution.install_id ?? undefined,
+      user_id: attribution.user_id,
+      signup_id: attribution.signup_id,
       source_system: "SIGNUP_SERVICE",
-      metadata: seed.claimed_code ? { claimed_referral_code: seed.claimed_code } : {},
+      metadata: seed.claim ? { claimed_referral_code: seed.claim.code } : {},
     });
   }
 
-  const signup_at = reached(seed.reach, "SIGNUP_COMPLETED") ? iso(base, 10.8) : null;
-  if (signup_at) {
+  if (reached(seed.reach, "SIGNUP_COMPLETED")) {
+    attribution.signup_at = iso(base, 10.8);
+    attribution.first_conversion_at = attribution.signup_at;
     pushEvent({
       event_type: "SIGNUP_COMPLETED",
-      occurred_at: signup_at,
-      attribution_id,
-      click_id: click.click_id,
-      install_id: install?.install_id,
-      session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      user_id: user_id ?? undefined,
-      signup_id: signup_id ?? undefined,
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
+      occurred_at: attribution.signup_at,
+      ...ctx(),
+      install_id: attribution.install_id ?? undefined,
+      user_id: attribution.user_id ?? undefined,
+      signup_id: attribution.signup_id ?? undefined,
       source_system: "SIGNUP_SERVICE",
       metadata: { email: seed.email },
     });
   }
 
-  const tenant_id = reached(seed.reach, "TENANT_CREATED") ? nextId("T", 6) : null;
-  const tenant_created_at = tenant_id ? iso(base, 11) : null;
-  if (tenant_id) {
+  if (reached(seed.reach, "TENANT_CREATED")) {
+    attribution.tenant_id = nextId("T", 6);
+    attribution.tenant_name = seed.tenant_name;
+    attribution.tenant_created_at = iso(base, 11);
     pushEvent({
       event_type: "TENANT_CREATED",
-      occurred_at: tenant_created_at!,
-      attribution_id,
-      click_id: click.click_id,
-      install_id: install?.install_id,
-      session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      user_id: user_id ?? undefined,
-      tenant_id,
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
+      occurred_at: attribution.tenant_created_at,
+      ...ctx(),
+      install_id: attribution.install_id ?? undefined,
+      user_id: attribution.user_id ?? undefined,
+      tenant_id: attribution.tenant_id,
       source_system: "TENANT_SERVICE",
       metadata: { tenant_name: seed.tenant_name },
     });
-
+    const res = resolve(iso(base, 11.2));
     pushEvent({
       event_type: "ATTRIBUTION_RESOLVED",
-      occurred_at: iso(base, 11.2),
-      attribution_id,
-      click_id: click.click_id,
-      install_id: install?.install_id,
-      session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: seed.unattributed ? undefined : (link.partner_id ?? undefined),
-      user_id: user_id ?? undefined,
-      tenant_id,
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
-      attribution_method: method,
+      occurred_at: res.resolved_at,
+      ...ctx(),
+      install_id: attribution.install_id ?? undefined,
+      user_id: attribution.user_id ?? undefined,
+      tenant_id: attribution.tenant_id,
+      attribution_method: res.attribution_method,
       source_system: "ATTRIBUTION_ENGINE",
       metadata: {
         rule: store.rules.conflict_rule,
-        resolution_reason: conflictClick
-          ? "Two eligible partner clicks in session — resolved by last eligible deterministic acquisition"
-          : seed.unattributed
-            ? "No reliable acquisition signal available"
-            : "Single eligible deterministic acquisition in window",
+        eligible_clicks: res.eligible_click_count,
+        resolution_reason: res.resolution_reason,
       },
     });
   }
 
-  const activated_at = reached(seed.reach, "TENANT_ACTIVATED") ? iso(base, 2 * 1440 + 30) : null;
-  if (activated_at) {
+  if (reached(seed.reach, "TENANT_ACTIVATED")) {
+    attribution.activated_at = iso(base, 2 * 1440 + 30);
     pushEvent({
       event_type: "TENANT_ACTIVATED",
-      occurred_at: activated_at,
-      attribution_id,
-      session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      user_id: user_id ?? undefined,
-      tenant_id: tenant_id ?? undefined,
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
+      occurred_at: attribution.activated_at,
+      ...ctx(),
+      user_id: attribution.user_id ?? undefined,
+      tenant_id: attribution.tenant_id ?? undefined,
       source_system: "TENANT_SERVICE",
       metadata: { activation_trigger: "first_business_document_created" },
     });
@@ -872,15 +890,13 @@ function buildJourney(seed: JourneySeed): Attribution {
   const priceVersion =
     store.priceVersions.find((pv) => pv.price_version_id === seed.price_version_id) ??
     store.priceVersions.find(
-      (pv) => store.plans.find((p) => p.plan_id === pv.plan_id)?.app === link.app,
+      (pv) => store.plans.find((p) => p.plan_id === pv.plan_id)?.app === app,
     ) ??
     store.priceVersions[0]!;
-  const plan =
-    store.plans.find((p) => p.plan_id === priceVersion.plan_id) ?? store.plans[0]!;
+  const plan = store.plans.find((p) => p.plan_id === priceVersion.plan_id) ?? store.plans[0]!;
 
-  let subscription: Attribution["subscription"] = null;
   if (reached(seed.reach, "SUBSCRIPTION")) {
-    subscription = {
+    attribution.subscription = {
       subscription_id: nextId("SUB", 5),
       plan_id: plan.plan_id,
       price_version_id: priceVersion.price_version_id,
@@ -888,108 +904,49 @@ function buildJourney(seed: JourneySeed): Attribution {
     };
     pushEvent({
       event_type: "SUBSCRIPTION_STARTED",
-      occurred_at: subscription.started_at,
-      attribution_id,
-      session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      user_id: user_id ?? undefined,
-      tenant_id: tenant_id ?? undefined,
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
+      occurred_at: attribution.subscription.started_at,
+      ...ctx(),
+      user_id: attribution.user_id ?? undefined,
+      tenant_id: attribution.tenant_id ?? undefined,
       source_system: "BILLING_SERVICE",
       metadata: {
         plan_id: plan.plan_id,
         plan_name: plan.name,
         price_version_id: priceVersion.price_version_id,
-        subscription_id: subscription.subscription_id,
+        subscription_id: attribution.subscription.subscription_id,
         pricing_source: "PRICE_ADMIN",
       },
     });
   }
 
-  let first_payment: Attribution["first_payment"] = null;
   if (reached(seed.reach, "PAYMENT")) {
-    first_payment = {
+    attribution.first_payment = {
       transaction_id: `TX-${90000 + Math.floor(rand() * 9000)}`,
       amount: priceVersion.amount,
       currency: "INR",
       occurred_at: iso(base, 8 * 1440 + 40),
     };
+    attribution.commercial_conversion_at = attribution.first_payment.occurred_at;
     pushEvent({
       event_type: "FIRST_PAYMENT",
-      occurred_at: first_payment.occurred_at,
-      attribution_id,
-      session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      user_id: user_id ?? undefined,
-      tenant_id: tenant_id ?? undefined,
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
+      occurred_at: attribution.first_payment.occurred_at,
+      ...ctx(),
+      user_id: attribution.user_id ?? undefined,
+      tenant_id: attribution.tenant_id ?? undefined,
       source_system: "BILLING_SERVICE",
       metadata: {
-        transaction_id: first_payment.transaction_id,
-        amount: first_payment.amount,
+        transaction_id: attribution.first_payment.transaction_id,
+        amount: attribution.first_payment.amount,
         currency: "INR",
-        subscription_id: subscription?.subscription_id ?? null,
+        subscription_id: attribution.subscription?.subscription_id ?? null,
         commission_calculation: "handled externally",
       },
     });
   }
 
-  const attribution: Attribution = {
-    attribution_id,
-    partner_id: seed.unattributed ? null : link.partner_id,
-    partner_name_snapshot: seed.unattributed ? null : (partner?.name ?? null),
-    partner_type_snapshot: seed.unattributed ? null : (partner?.partner_type ?? null),
-    campaign_id: link.campaign_id,
-    link_id: link.link_id,
-    click_id: click.click_id,
-    install_id: install?.install_id ?? null,
-    session_id,
-    user_id,
-    signup_id,
-    tenant_id,
-    tenant_name: tenant_id ? seed.tenant_name : null,
-    contact_email: seed.email,
-    channel: link.channel,
-    app: link.app,
-    platform: seed.platform,
-    attribution_method: method,
-    attribution_source: seed.unattributed
-      ? "NONE"
-      : method === "CLAIMED"
-        ? "REFERRAL_CODE_CLAIM"
-        : seed.platform === "ANDROID"
-          ? "PLAY_INSTALL_REFERRER"
-          : seed.platform === "IOS"
-            ? "PROVIDER_DEPENDENT"
-            : "PRESERVED_ATTRIBUTION_TOKEN",
-    resolution_reason: conflictClick
-      ? "Conflict resolved: last eligible deterministic acquisition before install"
-      : seed.unattributed
-        ? "No reliable acquisition source available"
-        : `Eligible acquisition within ${store.rules.click_attribution_window_days}-day click window`,
-    resolution_timestamp: iso(base, 11.2),
-    attributed_at: seed.unattributed ? null : iso(base, 11.2),
-    first_conversion_at: signup_at,
-    commercial_conversion_at: first_payment?.occurred_at ?? null,
-    status: seed.unattributed ? "UNATTRIBUTED" : "ATTRIBUTED",
-    signup_at,
-    tenant_created_at,
-    activated_at,
-    subscription,
-    first_payment,
-    overrides: [],
-  };
-
   if (seed.overrideTo) {
     const target = store.partners.find((p) => p.partner_id === seed.overrideTo!.partner_id)!;
+    const at = iso(base, 9 * 1440);
     attribution.overrides.push({
       from_partner_id: attribution.partner_id,
       from_partner_name: attribution.partner_name_snapshot,
@@ -997,20 +954,14 @@ function buildJourney(seed: JourneySeed): Attribution {
       to_partner_name: target.name,
       reason: seed.overrideTo.reason,
       actor: seed.overrideTo.actor,
-      occurred_at: iso(base, 9 * 1440),
+      occurred_at: at,
     });
     pushEvent({
       event_type: "ATTRIBUTION_OVERRIDDEN",
-      occurred_at: iso(base, 9 * 1440),
-      attribution_id,
-      session_id,
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
+      occurred_at: at,
+      ...ctx(),
       partner_id: target.partner_id,
-      tenant_id: tenant_id ?? undefined,
-      app: link.app,
-      platform: seed.platform,
-      channel: link.channel,
+      tenant_id: attribution.tenant_id ?? undefined,
       source_system: "ATTRIBUTION_ADMIN",
       metadata: {
         from_partner: attribution.partner_name_snapshot,
@@ -1113,13 +1064,13 @@ buildJourney({
   reach: "FIRST_OPEN", // Scenario C: installs, never signs up
 });
 buildJourney({
-  link_id: "LNK-0006",
+  link_id: null, // Scenario D: organic — journey begins without any link
+  app: "AURUMI",
   start: daysAgo(15, 800),
   platform: "WEB",
   tenant_name: "Lotus Interiors",
   email: "hello@lotusinteriors.in",
   reach: "TENANT_ACTIVATED",
-  unattributed: true, // Scenario D: no reliable source
 });
 buildJourney({
   link_id: "LNK-0007",
@@ -1136,8 +1087,7 @@ buildJourney({
   platform: "IOS",
   tenant_name: "Sunrise Pharma Retail",
   email: "owner@sunrisepharma.in",
-  reach: "TENANT_CREATED",
-  method: "MATCHED",
+  reach: "TENANT_CREATED", // iOS: no deterministic signal — engine falls back to matching
 });
 buildJourney({
   link_id: "LNK-0002",
@@ -1146,8 +1096,8 @@ buildJourney({
   tenant_name: "Geeta Steel Works",
   email: "geeta@geetasteel.in",
   reach: "SUBSCRIPTION",
-  method: "CLAIMED",
-  claimed_code: "SRISAI104",
+  referrer_lost: true, // web token not preserved — engine falls back to the claim
+  claim: { partner_id: "P-104", code: "SRISAI104" },
 });
 buildJourney({
   link_id: "LNK-0003",
@@ -1232,16 +1182,18 @@ const reaches: JourneyStage[] = [
 const activeLinkIds = ["LNK-0001", "LNK-0002", "LNK-0003", "LNK-0004", "LNK-0005", "LNK-0006", "LNK-0008"];
 for (let i = 0; i < tenantNames.length; i += 1) {
   const platform: Platform = pick<Platform>(["ANDROID", "ANDROID", "ANDROID", "IOS", "WEB"]);
-  const unattributed = rand() < 0.12;
+  const organic = rand() < 0.12;
+  const claimed = rand() < 0.1;
+  const linkId = pick(activeLinkIds);
   buildJourney({
-    link_id: pick(activeLinkIds),
+    link_id: organic ? null : linkId,
+    app: pick<AppName>(["AURA", "SHOPTALK", "AURUMI"]),
     start: daysAgo(2 + Math.floor(rand() * 86), 480 + Math.floor(rand() * 480)),
     platform,
     tenant_name: tenantNames[i]!,
     email: `contact@${tenantNames[i]!.toLowerCase().replace(/[^a-z]/g, "")}.in`,
     reach: pick(reaches),
-    unattributed,
-    method: unattributed ? "UNATTRIBUTED" : rand() < 0.1 ? "CLAIMED" : undefined,
+    claim: organic && claimed ? { partner_id: pick(partners).partner_id, code: "REF-CODE" } : undefined,
   });
 }
 

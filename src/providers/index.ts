@@ -695,14 +695,13 @@ export const simulationProvider = {
   async start(linkId: string, platform: Platform): Promise<SimulationState> {
     await latency();
     const link = store.links.find((l) => l.link_id === linkId)!;
-    const partner = store.partners.find((p) => p.partner_id === link.partner_id) ?? null;
     const attribution: Attribution = {
       attribution_id: nextId("ATR", 5),
-      partner_id: link.partner_id,
-      partner_name_snapshot: partner?.name ?? null,
-      partner_type_snapshot: partner?.partner_type ?? null,
-      campaign_id: link.campaign_id,
-      link_id: link.link_id,
+      partner_id: null,
+      partner_name_snapshot: null,
+      partner_type_snapshot: null,
+      campaign_id: null,
+      link_id: null,
       click_id: null,
       install_id: null,
       session_id: nextId("SES", 5),
@@ -711,12 +710,12 @@ export const simulationProvider = {
       tenant_id: null,
       tenant_name: null,
       contact_email: null,
-      channel: link.channel,
+      channel: null,
       app: link.app,
       platform,
       attribution_method: "UNATTRIBUTED",
       attribution_source: "NONE",
-      resolution_reason: "Simulation started — no acquisition signal recorded yet",
+      resolution_reason: "Simulation started — no acquisition facts recorded yet",
       resolution_timestamp: new Date().toISOString(),
       attributed_at: null,
       first_conversion_at: null,
@@ -747,7 +746,31 @@ export const simulationProvider = {
     )!;
     const link = store.links.find((l) => l.link_id === state.link_id)!;
     const now = new Date().toISOString();
-    const shared = {
+    /** Ask the authoritative engine using the session's recorded facts. */
+    const resolve = (at: string) => {
+      const install = store.installs.find((i) => i.session_id === attribution.session_id);
+      const res = runRules({
+        acquisitionFacts: store.clicks.filter((c) => c.session_id === attribution.session_id),
+        installSignal: install ? installSignalFor(install.platform, install.occurred_at) : null,
+        referenceTime: at,
+        rules: store.rules,
+        partnerName: partnerNameOf,
+      });
+      applyResolution(attribution, res);
+      return res;
+    };
+    /** Correlation fields from the CURRENT resolution, not from the link. */
+    const ctx = () => ({
+      attribution_id: attribution.attribution_id,
+      session_id: attribution.session_id,
+      link_id: attribution.link_id ?? undefined,
+      campaign_id: attribution.campaign_id ?? undefined,
+      partner_id: attribution.partner_id ?? undefined,
+      app: link.app,
+      platform: state.platform,
+      channel: attribution.channel ?? undefined,
+    });
+    const clickFields = {
       attribution_id: attribution.attribution_id,
       session_id: attribution.session_id,
       link_id: link.link_id,
@@ -780,11 +803,11 @@ export const simulationProvider = {
         redirect_target: redirectTargetFor(link.app, state.platform),
       };
       store.clicks.push(click);
-      attribution.click_id = click.click_id;
+      resolve(now);
       pushEvent({
         event_type: "LINK_CLICKED",
         occurred_at: now,
-        ...shared,
+        ...clickFields,
         click_id: click.click_id,
         source_system: "AURUMI_NATIVE_ATTRIBUTION",
         metadata: { token: link.token, user_agent: click.user_agent, simulated: true },
@@ -792,7 +815,7 @@ export const simulationProvider = {
       pushEvent({
         event_type: "STORE_REDIRECTED",
         occurred_at: now,
-        ...shared,
+        ...clickFields,
         click_id: click.click_id,
         source_system: "REDIRECT_SERVICE",
         metadata: { target: click.redirect_target, destination: link.destination, simulated: true },
@@ -802,32 +825,29 @@ export const simulationProvider = {
     }
 
     if (step === "INSTALL") {
-      const deterministic = state.platform === "ANDROID";
+      const signal = installSignalFor(state.platform, now);
+      const deterministic = signal.referrer_recovered;
       const install: Install = {
         install_id: nextId("INS", 5),
-        click_id: attribution.click_id,
+        click_id: null,
         session_id: attribution.session_id,
         app: link.app,
         platform: state.platform,
-        attribution_method: deterministic ? "DETERMINISTIC" : "MATCHED",
-        attribution_source: deterministic ? "PLAY_INSTALL_REFERRER" : "PROVIDER_DEPENDENT",
+        attribution_method: "UNATTRIBUTED",
+        attribution_source: "NONE",
         referrer_recovered: deterministic,
         occurred_at: now,
       };
       store.installs.push(install);
       attribution.install_id = install.install_id;
-      attribution.attribution_method = install.attribution_method;
-      attribution.attribution_source = install.attribution_source;
-      attribution.status = "ATTRIBUTED";
-      attribution.attributed_at = now;
-      attribution.resolution_reason = deterministic
-        ? "Play Install Referrer recovered the original click token"
-        : "iOS deferred attribution is provider-dependent — resolved from allowed matching signals";
-      attribution.resolution_timestamp = now;
+      const res = resolve(now);
+      install.click_id = res.click_id;
+      install.attribution_method = res.attribution_method;
+      install.attribution_source = res.attribution_source;
       pushEvent({
-        event_type: "INSTALL_ATTRIBUTED",
+        event_type: res.status === "ATTRIBUTED" ? "INSTALL_ATTRIBUTED" : "INSTALL_UNATTRIBUTED",
         occurred_at: now,
-        ...shared,
+        ...ctx(),
         click_id: attribution.click_id ?? undefined,
         install_id: install.install_id,
         attribution_method: install.attribution_method,
@@ -847,7 +867,7 @@ export const simulationProvider = {
       pushEvent({
         event_type: "FIRST_OPEN",
         occurred_at: now,
-        ...shared,
+        ...ctx(),
         click_id: attribution.click_id ?? undefined,
         install_id: attribution.install_id ?? undefined,
         source_system: "APP_SDK",
@@ -861,7 +881,7 @@ export const simulationProvider = {
       pushEvent({
         event_type: "SIGNUP_STARTED",
         occurred_at: now,
-        ...shared,
+        ...ctx(),
         install_id: attribution.install_id ?? undefined,
         user_id: attribution.user_id,
         signup_id: attribution.signup_id,
@@ -878,7 +898,7 @@ export const simulationProvider = {
       pushEvent({
         event_type: "SIGNUP_COMPLETED",
         occurred_at: now,
-        ...shared,
+        ...ctx(),
         user_id: attribution.user_id ?? undefined,
         signup_id: attribution.signup_id ?? undefined,
         source_system: "SIGNUP_SERVICE",
@@ -892,22 +912,24 @@ export const simulationProvider = {
       pushEvent({
         event_type: "TENANT_CREATED",
         occurred_at: now,
-        ...shared,
+        ...ctx(),
         user_id: attribution.user_id ?? undefined,
         tenant_id: attribution.tenant_id,
         source_system: "TENANT_SERVICE",
         metadata: { tenant_name: attribution.tenant_name, simulated: true },
       });
+      const res = resolve(now);
       pushEvent({
         event_type: "ATTRIBUTION_RESOLVED",
         occurred_at: now,
-        ...shared,
+        ...ctx(),
         tenant_id: attribution.tenant_id,
-        attribution_method: attribution.attribution_method,
+        attribution_method: res.attribution_method,
         source_system: "ATTRIBUTION_ENGINE",
         metadata: {
           rule: store.rules.conflict_rule,
-          resolution_reason: attribution.resolution_reason,
+          eligible_clicks: res.eligible_click_count,
+          resolution_reason: res.resolution_reason,
           simulated: true,
         },
       });
@@ -918,7 +940,7 @@ export const simulationProvider = {
       pushEvent({
         event_type: "TENANT_ACTIVATED",
         occurred_at: now,
-        ...shared,
+        ...ctx(),
         tenant_id: attribution.tenant_id ?? undefined,
         source_system: "TENANT_SERVICE",
         metadata: { simulated: true },
@@ -939,7 +961,7 @@ export const simulationProvider = {
       pushEvent({
         event_type: "SUBSCRIPTION_STARTED",
         occurred_at: now,
-        ...shared,
+        ...ctx(),
         tenant_id: attribution.tenant_id ?? undefined,
         source_system: "BILLING_SERVICE",
         metadata: {
@@ -967,7 +989,7 @@ export const simulationProvider = {
       pushEvent({
         event_type: "FIRST_PAYMENT",
         occurred_at: now,
-        ...shared,
+        ...ctx(),
         tenant_id: attribution.tenant_id ?? undefined,
         source_system: "BILLING_SERVICE",
         metadata: {

@@ -61,7 +61,10 @@ function ConversionsPage() {
     queryFn: () => attributionProvider.listCampaigns(),
   });
   const { data: rows } = useQuery({
-    queryKey: ["conversions", { query, partnerId, campaignId, channel, app, method, stage, periodDays }],
+    queryKey: [
+      "conversions",
+      { query, partnerId, campaignId, channel, app, method, stage, periodDays },
+    ],
     queryFn: () =>
       attributionProvider.listAttributions({
         query,
@@ -220,10 +223,14 @@ function ConversionsPage() {
                     <td className="py-3 pr-4 text-muted-foreground">
                       {campaigns?.find((c) => c.campaign_id === a.campaign_id)?.name ?? "—"}
                     </td>
-                    <td className="py-3 pr-4">{a.channel ? CHANNEL_LABEL[a.channel] : "Direct / organic"}</td>
+                    <td className="py-3 pr-4">
+                      {a.channel ? CHANNEL_LABEL[a.channel] : "Direct / organic"}
+                    </td>
                     <td className="py-3 pr-4">{APP_LABEL[a.app]}</td>
                     <td className="py-3 pr-4 text-muted-foreground">{formatDate(a.signup_at)}</td>
-                    <td className="py-3 pr-4 text-muted-foreground">{formatDate(a.activated_at)}</td>
+                    <td className="py-3 pr-4 text-muted-foreground">
+                      {formatDate(a.activated_at)}
+                    </td>
                     <td className="py-3 pr-4 text-muted-foreground">
                       {a.subscription ? (
                         <span className="mono-token">

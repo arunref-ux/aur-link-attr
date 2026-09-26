@@ -66,9 +66,7 @@ export function resolveAttribution(input: ResolutionInput): ResolutionOutput {
     .sort((a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime());
 
   const partnerClicks = eligible.filter((c) => c.partner_id);
-  const claim = (input.claims ?? [])
-    .filter((c) => new Date(c.occurred_at).getTime() <= ref)
-    .at(-1);
+  const claim = (input.claims ?? []).filter((c) => new Date(c.occurred_at).getTime() <= ref).at(-1);
   const deterministicSignal = !!input.installSignal?.referrer_recovered && eligible.length > 0;
 
   const base = { resolved_at: input.referenceTime, eligible_click_count: eligible.length };
@@ -146,7 +144,8 @@ export function resolveAttribution(input: ResolutionInput): ResolutionOutput {
       click_id: chosen.click_id,
       attribution_method: "UNATTRIBUTED",
       attribution_source: "NONE",
-      resolution_reason: "Acquisition click recorded; awaiting an install signal before attribution can be resolved.",
+      resolution_reason:
+        "Acquisition click recorded; awaiting an install signal before attribution can be resolved.",
     };
   }
 

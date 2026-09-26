@@ -4,7 +4,14 @@ import { ArrowLeft, ChevronDown, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { EmptyState, MethodBadge, PageHeader, Panel, SourceNote, StatusPill } from "@/components/bits";
+import {
+  EmptyState,
+  MethodBadge,
+  PageHeader,
+  Panel,
+  SourceNote,
+  StatusPill,
+} from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -79,7 +86,10 @@ function TraceDetailPage() {
 
   if (!attribution) {
     return (
-      <EmptyState title="Attribution record not found" hint="Search Trace for another identifier." />
+      <EmptyState
+        title="Attribution record not found"
+        hint="Search Trace for another identifier."
+      />
     );
   }
 
@@ -118,9 +128,31 @@ function TraceDetailPage() {
               <MethodBadge method={attribution.attribution_method} />
             </dd>
           </div>
-          <Field label="Source partner" value={attribution.partner_name_snapshot ?? "Unattributed"} />
+          {attribution.overrides.length > 0 ? (
+            <>
+              <Field
+                label="Acquisition source"
+                value={
+                  acquisitionPartner(events ?? [], links ?? [], attribution.click_id) ??
+                  "No partner (owned / organic)"
+                }
+              />
+              <Field
+                label="Current attributed partner"
+                value={attribution.partner_name_snapshot ?? "Unattributed"}
+              />
+            </>
+          ) : (
+            <Field
+              label="Attributed partner"
+              value={attribution.partner_name_snapshot ?? "Unattributed"}
+            />
+          )}
           <Field label="Campaign" value={campaign?.name ?? "—"} />
-          <Field label="Channel" value={attribution.channel ? CHANNEL_LABEL[attribution.channel] : "Direct / organic"} />
+          <Field
+            label="Channel"
+            value={attribution.channel ? CHANNEL_LABEL[attribution.channel] : "Direct / organic"}
+          />
           <Field label="Target app" value={APP_LABEL[attribution.app]} />
           <Field label="Platform" value={PLATFORM_LABEL[attribution.platform]} />
           <Field label="Link" value={link?.short_url ?? "—"} mono />
@@ -134,8 +166,26 @@ function TraceDetailPage() {
       </Panel>
 
       {attribution.overrides.length > 0 ? (
-        <Panel className="mt-6" title="Attribution history" subtitle="Original events are never modified">
+        <Panel
+          className="mt-6"
+          title="Attribution history"
+          subtitle="Original events are never modified"
+        >
           <ol className="space-y-3">
+            <li className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
+              Acquisition source:{" "}
+              <strong className="text-foreground">
+                {acquisitionPartner(events ?? [], links ?? [], attribution.click_id) ??
+                  "No partner"}
+              </strong>
+              <span className="text-muted-foreground"> — historical click, never modified</span>
+            </li>
+            <li className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
+              Original resolution:{" "}
+              <strong className="text-foreground">
+                {attribution.overrides[0]?.from_partner_name ?? "Unattributed"}
+              </strong>
+            </li>
             {attribution.overrides.map((o, i) => (
               <li key={i} className="rounded-md border border-claimed/30 bg-claimed/5 px-4 py-3">
                 <p className="text-sm text-foreground">
@@ -148,7 +198,7 @@ function TraceDetailPage() {
               </li>
             ))}
             <li className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
-              Current attribution:{" "}
+              Current attributed partner:{" "}
               <strong className="text-foreground">
                 {attribution.partner_name_snapshot ?? "Unattributed"}
               </strong>
@@ -230,7 +280,9 @@ function EventCard({
           {event.attribution_method ? <MethodBadge method={event.attribution_method} /> : null}
           <Button size="sm" variant="ghost" onClick={() => setExpanded((v) => !v)}>
             <ChevronDown
-              className={expanded ? "size-4 rotate-180 transition-transform" : "size-4 transition-transform"}
+              className={
+                expanded ? "size-4 rotate-180 transition-transform" : "size-4 transition-transform"
+              }
             />
           </Button>
         </div>
@@ -280,10 +332,7 @@ function EventCard({
   );
 }
 
-function humanHighlights(
-  event: AttributionEvent,
-  amount?: number,
-): [string, string][] {
+function humanHighlights(event: AttributionEvent, amount?: number): [string, string][] {
   const m = event.metadata;
   const rows: [string, string][] = [];
   const add = (label: string, value: unknown) => {
@@ -339,14 +388,30 @@ function humanHighlights(
       add("Reason", m["reason"]);
       add("Actor", m["actor"]);
       break;
+    case "LINK_ENABLED":
+      add("Actor", m["actor"]);
+      add("Note", m["note"]);
+      break;
     case "LINK_DISABLED":
       add("Behaviour", m["behavior"]);
+      add("Actor", m["actor"]);
       add("Note", m["note"]);
       break;
     default:
       break;
   }
   return rows;
+}
+
+/** Partner on the historical click that won the original resolution. */
+function acquisitionPartner(
+  events: AttributionEvent[],
+  links: { link_id: string; partner_name_snapshot: string | null }[],
+  clickId: string | null,
+): string | null {
+  const click = events.find((e) => e.event_type === "LINK_CLICKED" && e.click_id === clickId);
+  if (!click?.partner_id) return null;
+  return links.find((l) => l.link_id === click.link_id)?.partner_name_snapshot ?? click.partner_id;
 }
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

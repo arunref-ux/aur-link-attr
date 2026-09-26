@@ -27,8 +27,9 @@ import type {
   PriceVersion,
   ProviderDescriptor,
 } from "@/domain/types";
+import { lookupReferralCodeIn, type ReferralLookupResult } from "@/lib/referral-lookup";
 import {
-  makeToken,
+  makeUniqueToken,
   nextId,
   notifyStore,
   pushEvent,
@@ -42,13 +43,15 @@ import {
 import { resolveAttribution as runRules } from "@/lib/attribution-rules";
 
 const latency = () => new Promise<void>((r) => setTimeout(r, 40));
-const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 /* ----------------------------- PartnerProvider ---------------------------- */
 
 export interface PartnerProvider {
   searchPartners(query?: string): Promise<Partner[]>;
   getPartner(partnerId: string): Promise<Partner | null>;
+  /** Resolve a referral code to a partner reference (Partner Portal owns this relationship). */
+  lookupReferralCode(code: string): Promise<ReferralLookupResult | null>;
 }
 
 export const partnerProvider: PartnerProvider = {
@@ -68,6 +71,10 @@ export const partnerProvider: PartnerProvider = {
   async getPartner(partnerId) {
     await latency();
     return clone(store.partners.find((p) => p.partner_id === partnerId) ?? null);
+  },
+  async lookupReferralCode(code) {
+    await latency();
+    return clone(lookupReferralCodeIn(store.partners, code));
   },
 };
 
@@ -217,8 +224,7 @@ export const attributionProvider = {
         )
         .map((l) => ({
           ...l,
-          campaign_name:
-            store.campaigns.find((c) => c.campaign_id === l.campaign_id)?.name ?? "—",
+          campaign_name: store.campaigns.find((c) => c.campaign_id === l.campaign_id)?.name ?? "—",
           clicks: store.events.filter(
             (e) => e.link_id === l.link_id && e.event_type === "LINK_CLICKED",
           ).length,
@@ -236,7 +242,7 @@ export const attributionProvider = {
   async createLink(input: CreateLinkInput): Promise<AttributionLink> {
     await latency();
     const partner = store.partners.find((p) => p.partner_id === input.partner_id) ?? null;
-    const token = makeToken();
+    const token = makeUniqueToken();
     const link: AttributionLink = {
       link_id: nextId("LNK", 4),
       token,
@@ -272,14 +278,18 @@ export const attributionProvider = {
     notifyStore();
     return clone(link);
   },
-  async setLinkStatus(linkId: string, status: "ACTIVE" | "DISABLED"): Promise<void> {
+  async setLinkStatus(
+    linkId: string,
+    status: "ACTIVE" | "DISABLED",
+    actor = "you@aurumi.ai",
+  ): Promise<void> {
     await latency();
     const link = store.links.find((l) => l.link_id === linkId);
-    if (!link) return;
+    if (!link || link.status === status) return;
     link.status = status;
-    if (status === "DISABLED") {
+    {
       pushEvent({
-        event_type: "LINK_DISABLED",
+        event_type: status === "DISABLED" ? "LINK_DISABLED" : "LINK_ENABLED",
         occurred_at: new Date().toISOString(),
         link_id: link.link_id,
         campaign_id: link.campaign_id,
@@ -288,10 +298,14 @@ export const attributionProvider = {
         platform: "WEB",
         channel: link.channel,
         source_system: "AURUMI_NATIVE_ATTRIBUTION",
-        metadata: {
-          behavior: link.disabled_behavior,
-          note: "Historical attribution remains intact",
-        },
+        metadata:
+          status === "DISABLED"
+            ? {
+                behavior: link.disabled_behavior,
+                actor,
+                note: "Historical attribution remains intact",
+              }
+            : { actor, note: "New journeys may originate from this link again" },
       });
     }
     notifyStore();
@@ -330,16 +344,19 @@ export const attributionProvider = {
       destination: link.destination,
       demo_experience_id: link.demo_experience_id,
       link_status: link.status,
+      available_for_acquisition: link.status === "ACTIVE",
     };
   },
 
   /* --- events / attributions --- */
-  async listEvents(filter: {
-    attribution_id?: string;
-    link_id?: string;
-    campaign_id?: string;
-    limit?: number;
-  } = {}): Promise<AttributionEvent[]> {
+  async listEvents(
+    filter: {
+      attribution_id?: string;
+      link_id?: string;
+      campaign_id?: string;
+      limit?: number;
+    } = {},
+  ): Promise<AttributionEvent[]> {
     await latency();
     return clone(
       store.events
@@ -366,7 +383,9 @@ export const attributionProvider = {
         .filter((a) => !filters.campaign_id || a.campaign_id === filters.campaign_id)
         .filter((a) => !filters.channel || a.channel === filters.channel)
         .filter((a) => !filters.app || a.app === filters.app)
-        .filter((a) => !filters.attribution_method || a.attribution_method === filters.attribution_method)
+        .filter(
+          (a) => !filters.attribution_method || a.attribution_method === filters.attribution_method,
+        )
         .filter((a) => {
           if (!filters.stage) return true;
           if (filters.stage === "SIGNED_UP") return !!a.signup_at;
@@ -454,7 +473,10 @@ export const attributionProvider = {
   },
 
   /** Exposed so the Configuration screen can explain the live rule engine. */
-  async previewResolution(clicks: Click[], deterministic: boolean): Promise<ReturnType<typeof runRules>> {
+  async previewResolution(
+    clicks: Click[],
+    deterministic: boolean,
+  ): Promise<ReturnType<typeof runRules>> {
     await latency();
     const now = new Date().toISOString();
     return runRules({
@@ -544,14 +566,22 @@ export interface OverviewMetrics {
   byMethod: { key: AttributionMethod; count: number }[];
 }
 
+/** First opens come only from normalized FIRST_OPEN events, deduplicated per journey. */
+function firstOpenCount(attributions: Attribution[]): number {
+  const ids = new Set(attributions.map((a) => a.attribution_id));
+  const opened = new Set(
+    store.events
+      .filter((e) => e.event_type === "FIRST_OPEN" && e.attribution_id && ids.has(e.attribution_id))
+      .map((e) => e.attribution_id),
+  );
+  return opened.size;
+}
+
 function funnelFor(attributions: Attribution[], clicks: number): FunnelStageRow[] {
   const counts = [
     ["Clicks", clicks],
     ["Installs", attributions.filter((a) => a.install_id).length],
-    [
-      "First Opens",
-      attributions.filter((a) => a.install_id || a.signup_at || a.tenant_id).length,
-    ],
+    ["First Opens", firstOpenCount(attributions)],
     ["Signups", attributions.filter((a) => a.signup_at).length],
     ["Tenants", attributions.filter((a) => a.tenant_id).length],
     ["Activated", attributions.filter((a) => a.activated_at).length],
@@ -694,10 +724,21 @@ export interface SimulationState {
   redirect_target?: string;
 }
 
+export class LinkUnavailableError extends Error {
+  constructor(public link_id: string) {
+    super("This link is disabled and cannot start a new journey.");
+    this.name = "LinkUnavailableError";
+  }
+}
+
 export const simulationProvider = {
   async start(linkId: string, platform: Platform): Promise<SimulationState> {
     await latency();
-    const link = store.links.find((l) => l.link_id === linkId)!;
+    const link = store.links.find((l) => l.link_id === linkId);
+    if (!link) throw new Error("Unknown link");
+    if (link.status !== "ACTIVE") {
+      throw new LinkUnavailableError(link.link_id);
+    }
     const attribution: Attribution = {
       attribution_id: nextId("ATR", 5),
       partner_id: null,
@@ -744,9 +785,7 @@ export const simulationProvider = {
 
   async step(state: SimulationState, step: SimulationStep): Promise<SimulationState> {
     await latency();
-    const attribution = store.attributions.find(
-      (a) => a.attribution_id === state.attribution_id,
-    )!;
+    const attribution = store.attributions.find((a) => a.attribution_id === state.attribution_id)!;
     const link = store.links.find((l) => l.link_id === state.link_id)!;
     const now = new Date().toISOString();
     /** Ask the authoritative engine using the session's recorded facts. */
@@ -783,7 +822,27 @@ export const simulationProvider = {
       platform: state.platform,
       channel: link.channel,
     };
-    const next: SimulationState = { ...state, completed: [...state.completed, step] };
+    if (step === "CLICK" && link.status !== "ACTIVE") throw new LinkUnavailableError(link.link_id);
+    const next: SimulationState = {
+      ...state,
+      completed: state.completed.includes(step) ? state.completed : [...state.completed, step],
+    };
+    const hasEvent = (t: AttributionEvent["event_type"]) =>
+      store.events.some(
+        (e) => e.attribution_id === attribution.attribution_id && e.event_type === t,
+      );
+
+    // Simulator-level idempotency: naturally singular stages happen once per journey.
+    const alreadyDone =
+      (step === "INSTALL" && store.installs.some((i) => i.session_id === attribution.session_id)) ||
+      (step === "FIRST_OPEN" && hasEvent("FIRST_OPEN")) ||
+      (step === "SIGNUP_STARTED" && !!attribution.signup_id) ||
+      (step === "SIGNUP_COMPLETED" && !!attribution.signup_at) ||
+      (step === "TENANT_CREATED" && !!attribution.tenant_id) ||
+      (step === "TENANT_ACTIVATED" && !!attribution.activated_at) ||
+      (step === "SUBSCRIPTION_STARTED" && !!attribution.subscription) ||
+      (step === "FIRST_PAYMENT" && !!attribution.first_payment);
+    if (alreadyDone) return next;
 
     if (step === "CLICK") {
       const click: Click = {
@@ -983,7 +1042,7 @@ export const simulationProvider = {
         (p) => p.price_version_id === attribution.subscription?.price_version_id,
       );
       attribution.first_payment = {
-        transaction_id: `TX-${Math.floor(10000 + Math.random() * 89999)}`,
+        transaction_id: nextId("TX", 5),
         amount: pv?.amount ?? 2499,
         currency: "INR",
         occurred_at: now,

@@ -118,10 +118,7 @@ function CampaignDetailPage() {
             <Field label="Start" value={formatDate(campaign.start_date)} />
             <Field label="End" value={campaign.end_date ? formatDate(campaign.end_date) : "Open"} />
             <Field label="Created by" value={campaign.created_by} />
-            <Field
-              label="Tags"
-              value={campaign.tags.length ? campaign.tags.join(", ") : "—"}
-            />
+            <Field label="Tags" value={campaign.tags.length ? campaign.tags.join(", ") : "—"} />
             <Field label="Updated" value={formatDate(campaign.updated_at)} />
           </dl>
         </Panel>
@@ -135,7 +132,10 @@ function CampaignDetailPage() {
                   <Field label="Partner ID" value={partner.partner_id} mono />
                   <Field label="Type" value={PARTNER_TYPE_LABEL[partner.partner_type]} />
                   <Field label="Territory" value={partner.territory} />
-                  <Field label="Contact" value={`${partner.contact_name} · ${partner.contact_email}`} />
+                  <Field
+                    label="Contact"
+                    value={`${partner.contact_name} · ${partner.contact_email}`}
+                  />
                 </dl>
                 <SourceNote system="Partner Portal">read-only reference</SourceNote>
               </div>

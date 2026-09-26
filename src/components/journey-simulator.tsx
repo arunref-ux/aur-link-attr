@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, CheckCircle2, CircleDashed, Smartphone } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { MethodBadge, SourceNote } from "@/components/bits";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,13 @@ import {
 } from "@/components/ui/select";
 import type { Platform } from "@/domain/types";
 import { APP_LABEL, CHANNEL_LABEL, formatCurrency, formatTime } from "@/lib/format";
-import { attributionProvider, simulationProvider, type LinkRow, type SimulationState, type SimulationStep } from "@/providers";
+import {
+  attributionProvider,
+  simulationProvider,
+  type LinkRow,
+  type SimulationState,
+  type SimulationStep,
+} from "@/providers";
 
 const STEPS: { step: SimulationStep; label: string; button: string }[] = [
   { step: "CLICK", label: "Redirect", button: "Simulate Link Click" },
@@ -70,6 +77,8 @@ export function JourneySimulator({
       const current = state ?? (await simulationProvider.start(link.link_id, platform));
       const updated = await simulationProvider.step(current, next!.step);
       setState(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Step failed");
     } finally {
       setBusy(false);
     }
@@ -95,7 +104,10 @@ export function JourneySimulator({
         <div className="rounded-lg border border-border bg-muted/30 p-4">
           <p className="label-eyebrow">Step 1 — Link shared</p>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-            <Row label="Partner" value={link.partner_name_snapshot ?? "No partner (owned channel)"} />
+            <Row
+              label="Partner"
+              value={link.partner_name_snapshot ?? "No partner (owned channel)"}
+            />
             <Row label="Channel" value={CHANNEL_LABEL[link.channel]} />
             <Row label="Campaign" value={link.campaign_name} />
             <Row label="Link" value={link.short_url} mono />
@@ -128,6 +140,13 @@ export function JourneySimulator({
             ) : null}
           </div>
         </div>
+
+        {link.status !== "ACTIVE" && !state ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-foreground">
+            This link is disabled. It cannot start a new journey; existing attribution is unchanged.
+            Re-enable it to test new journeys.
+          </p>
+        ) : null}
 
         <ol className="space-y-2">
           {STEPS.map((s, i) => {
@@ -163,7 +182,11 @@ export function JourneySimulator({
                     </div>
                   </div>
                   {isNext ? (
-                    <Button size="sm" disabled={busy} onClick={() => void run()}>
+                    <Button
+                      size="sm"
+                      disabled={busy || (!state && link.status !== "ACTIVE")}
+                      onClick={() => void run()}
+                    >
                       {s.button} <ArrowRight className="size-4" />
                     </Button>
                   ) : null}
@@ -200,7 +223,9 @@ export function JourneySimulator({
                 </p>
               </div>
             ) : null}
-            <SourceNote system="Price Admin">plan and price version referenced, never calculated here</SourceNote>
+            <SourceNote system="Price Admin">
+              plan and price version referenced, never calculated here
+            </SourceNote>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">
                 {events?.length ?? 0} events recorded on this journey

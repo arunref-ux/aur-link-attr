@@ -39,8 +39,14 @@ import {
   applyResolution,
   installSignalFor,
   partnerNameOf,
+  recordOverride,
 } from "@/data/store";
 import { resolveAttribution as runRules } from "@/lib/attribution-rules";
+
+export function bumpRulesVersion(v: string): string {
+  const n = Number(v.replace("ATTR-RULES-", "")) || 1;
+  return `ATTR-RULES-${n + 1}`;
+}
 
 const latency = () => new Promise<void>((r) => setTimeout(r, 40));
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -432,42 +438,7 @@ export const attributionProvider = {
     const attribution = store.attributions.find((a) => a.attribution_id === input.attribution_id);
     const target = store.partners.find((p) => p.partner_id === input.to_partner_id);
     if (!attribution || !target) return null;
-    const occurred_at = new Date().toISOString();
-    attribution.overrides.push({
-      from_partner_id: attribution.partner_id,
-      from_partner_name: attribution.partner_name_snapshot,
-      to_partner_id: target.partner_id,
-      to_partner_name: target.name,
-      reason: input.reason,
-      actor: input.actor,
-      occurred_at,
-    });
-    pushEvent({
-      event_type: "ATTRIBUTION_OVERRIDDEN",
-      occurred_at,
-      attribution_id: attribution.attribution_id,
-      session_id: attribution.session_id,
-      link_id: attribution.link_id ?? undefined,
-      campaign_id: attribution.campaign_id ?? undefined,
-      partner_id: target.partner_id,
-      tenant_id: attribution.tenant_id ?? undefined,
-      app: attribution.app,
-      platform: attribution.platform,
-      channel: attribution.channel ?? undefined,
-      source_system: "ATTRIBUTION_ADMIN",
-      metadata: {
-        from_partner: attribution.partner_name_snapshot,
-        to_partner: target.name,
-        reason: input.reason,
-        actor: input.actor,
-        note: "Original event history preserved",
-      },
-    });
-    attribution.partner_id = target.partner_id;
-    attribution.partner_name_snapshot = target.name;
-    attribution.partner_type_snapshot = target.partner_type;
-    attribution.status = "OVERRIDDEN";
-    attribution.attributed_at = attribution.attributed_at ?? occurred_at;
+    recordOverride(attribution, target, input.reason, input.actor, new Date().toISOString());
     notifyStore();
     return clone(attribution);
   },
@@ -495,7 +466,12 @@ export const attributionProvider = {
   },
   async updateRules(patch: Partial<AttributionRulesConfig>): Promise<AttributionRulesConfig> {
     await latency();
+    const changed = (Object.keys(patch) as (keyof AttributionRulesConfig)[]).some(
+      (k) => patch[k] !== undefined && patch[k] !== store.rules[k],
+    );
     Object.assign(store.rules, patch);
+    // A behavioural change creates a new rules version; history keeps its old version.
+    if (changed) store.rulesVersion = bumpRulesVersion(store.rulesVersion);
     notifyStore();
     return clone(store.rules);
   },

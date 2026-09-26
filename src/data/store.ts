@@ -763,6 +763,82 @@ export function applyResolution(attribution: Attribution, res: ResolutionOutput)
   return resolution;
 }
 
+/**
+ * Admin override: immutable override record + ATTRIBUTION_OVERRIDDEN event +
+ * OVERRIDE resolution row + updated projection. Acquisition facts are untouched.
+ */
+export function recordOverride(
+  attribution: Attribution,
+  target: Partner,
+  reason: string,
+  actor: string,
+  at: string,
+) {
+  const previous = attribution.current_resolution_id ?? null;
+  const resolution: AttributionResolution = {
+    resolution_id: nextId("RES", 5),
+    subject_type: "ATTRIBUTION",
+    subject_id: attribution.attribution_id,
+    acquisition_session_id:
+      store.acquisitionSessions.find((s) => s.click_id === attribution.click_id)
+        ?.acquisition_session_id ?? null,
+    partner_id: target.partner_id,
+    campaign_id: attribution.campaign_id,
+    link_id: attribution.link_id,
+    click_id: attribution.click_id,
+    method: attribution.attribution_method,
+    source: "ADMIN_OVERRIDE",
+    reason: `Override by ${actor}: ${reason}`,
+    status: "OVERRIDDEN",
+    kind: "OVERRIDE",
+    rules_version: store.rulesVersion,
+    resolved_at: at,
+    created_at: at,
+  };
+  attribution.overrides.push({
+    override_id: nextId("OVR", 5),
+    previous_resolution_id: previous,
+    from_partner_id: attribution.partner_id,
+    from_partner_name: attribution.partner_name_snapshot,
+    to_partner_id: target.partner_id,
+    to_partner_name: target.name,
+    reason,
+    actor,
+    occurred_at: at,
+  });
+  pushEvent({
+    event_type: "ATTRIBUTION_OVERRIDDEN",
+    occurred_at: at,
+    attribution_id: attribution.attribution_id,
+    session_id: attribution.session_id,
+    link_id: attribution.link_id ?? undefined,
+    campaign_id: attribution.campaign_id ?? undefined,
+    partner_id: target.partner_id,
+    tenant_id: attribution.tenant_id ?? undefined,
+    app: attribution.app,
+    platform: attribution.platform,
+    channel: attribution.channel ?? undefined,
+    source_system: "ADMIN_PORTAL",
+    metadata: {
+      from_partner: attribution.partner_name_snapshot,
+      to_partner: target.name,
+      reason,
+      actor,
+      previous_resolution_id: previous,
+      note: "Original event history preserved",
+    },
+  });
+  store.resolutions.push(resolution);
+  attribution.partner_id = target.partner_id;
+  attribution.partner_name_snapshot = target.name;
+  attribution.partner_type_snapshot = target.partner_type;
+  attribution.status = "OVERRIDDEN";
+  attribution.attributed_at = attribution.attributed_at ?? at;
+  attribution.current_resolution_id = resolution.resolution_id;
+  attribution.rules_version = resolution.rules_version;
+  projectCurrent(attribution, at);
+}
+
 function buildJourney(seed: JourneySeed): Attribution {
   const link = seed.link_id ? store.links.find((l) => l.link_id === seed.link_id)! : null;
   if (link && link.status === "DISABLED") {
@@ -1097,35 +1173,7 @@ function buildJourney(seed: JourneySeed): Attribution {
 
   if (seed.overrideTo) {
     const target = store.partners.find((p) => p.partner_id === seed.overrideTo!.partner_id)!;
-    const at = iso(base, 9 * 1440);
-    attribution.overrides.push({
-      from_partner_id: attribution.partner_id,
-      from_partner_name: attribution.partner_name_snapshot,
-      to_partner_id: target.partner_id,
-      to_partner_name: target.name,
-      reason: seed.overrideTo.reason,
-      actor: seed.overrideTo.actor,
-      occurred_at: at,
-    });
-    pushEvent({
-      event_type: "ATTRIBUTION_OVERRIDDEN",
-      occurred_at: at,
-      ...ctx(),
-      partner_id: target.partner_id,
-      tenant_id: attribution.tenant_id ?? undefined,
-      source_system: "ATTRIBUTION_ADMIN",
-      metadata: {
-        from_partner: attribution.partner_name_snapshot,
-        to_partner: target.name,
-        reason: seed.overrideTo.reason,
-        actor: seed.overrideTo.actor,
-        note: "Original event history preserved",
-      },
-    });
-    attribution.partner_id = target.partner_id;
-    attribution.partner_name_snapshot = target.name;
-    attribution.partner_type_snapshot = target.partner_type;
-    attribution.status = "OVERRIDDEN";
+    recordOverride(attribution, target, seed.overrideTo.reason, seed.overrideTo.actor, iso(base, 9 * 1440));
   }
 
   store.attributions.push(attribution);

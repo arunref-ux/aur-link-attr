@@ -130,8 +130,18 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <ShellWithSync />
+    </QueryClientProvider>
+  );
+}
+
+function ShellWithSync() {
+  useStoreSync();
+  return (
+    <AppShell>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
-    </QueryClientProvider>
+      <Toaster position="top-right" />
+    </AppShell>
   );
 }

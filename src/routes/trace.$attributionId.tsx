@@ -122,7 +122,7 @@ function TraceDetailPage() {
             <>
               <Field
                 label="Acquisition source"
-                value={acquisitionPartner(events ?? [], attribution.click_id) ?? "No partner (owned / organic)"}
+                value={acquisitionPartner(events ?? [], links ?? [], attribution.click_id) ?? "No partner (owned / organic)"}
               />
               <Field
                 label="Current attributed partner"
@@ -155,7 +155,7 @@ function TraceDetailPage() {
             <li className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
               Acquisition source:{" "}
               <strong className="text-foreground">
-                {acquisitionPartner(events ?? [], attribution.click_id) ?? "No partner"}
+                {acquisitionPartner(events ?? [], links ?? [], attribution.click_id) ?? "No partner"}
               </strong>
               <span className="text-muted-foreground"> — historical click, never modified</span>
             </li>
@@ -384,11 +384,14 @@ function humanHighlights(
 }
 
 /** Partner on the historical click that won the original resolution. */
-function acquisitionPartner(events: AttributionEvent[], clickId: string | null): string | null {
+function acquisitionPartner(
+  events: AttributionEvent[],
+  links: { link_id: string; partner_name_snapshot: string | null }[],
+  clickId: string | null,
+): string | null {
   const click = events.find((e) => e.event_type === "LINK_CLICKED" && e.click_id === clickId);
-  const id = click?.partner_id;
-  if (!id) return null;
-  return (click.metadata["partner_name"] as string | undefined) ?? PARTNER_NAMES[id] ?? id;
+  if (!click?.partner_id) return null;
+  return links.find((l) => l.link_id === click.link_id)?.partner_name_snapshot ?? click.partner_id;
 }
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

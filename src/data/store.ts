@@ -871,8 +871,12 @@ function buildJourney(seed: JourneySeed): Attribution {
 
   const priceVersion =
     store.priceVersions.find((pv) => pv.price_version_id === seed.price_version_id) ??
-    store.priceVersions.find((pv) => store.plans.find((p) => p.plan_id === pv.plan_id)?.app === link.app)!;
-  const plan = store.plans.find((p) => p.plan_id === priceVersion.plan_id)!;
+    store.priceVersions.find(
+      (pv) => store.plans.find((p) => p.plan_id === pv.plan_id)?.app === link.app,
+    ) ??
+    store.priceVersions[0]!;
+  const plan =
+    store.plans.find((p) => p.plan_id === priceVersion.plan_id) ?? store.plans[0]!;
 
   let subscription: Attribution["subscription"] = null;
   if (reached(seed.reach, "SUBSCRIPTION")) {

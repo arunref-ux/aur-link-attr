@@ -453,14 +453,14 @@ export const attributionProvider = {
   /** Exposed so the Configuration screen can explain the live rule engine. */
   async previewResolution(clicks: Click[], deterministic: boolean): Promise<ReturnType<typeof runRules>> {
     await latency();
-    return runRules(
-      {
-        clicks,
-        reference_time: new Date().toISOString(),
-        deterministic_signal_available: deterministic,
-      },
-      store.rules,
-    );
+    const now = new Date().toISOString();
+    return runRules({
+      acquisitionFacts: clicks,
+      installSignal: { platform: "ANDROID", occurred_at: now, referrer_recovered: deterministic },
+      referenceTime: now,
+      rules: store.rules,
+      partnerName: partnerNameOf,
+    });
   },
 
   /* --- configuration --- */

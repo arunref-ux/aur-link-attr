@@ -14,3 +14,4 @@
 - All external systems (Partner Portal, Demo Studio, Price Admin) are reached only through the provider interfaces in `src/providers/index.ts`; screens never read `src/data/store.ts` directly — so simulated providers can be replaced by real services without UI changes.
 - Attribution state lives in the in-memory store `src/data/store.ts` with deterministic seeds; attribution resolution rules stay in `src/lib/attribution-rules.ts` so the configured rule set, not UI code, decides outcomes.
 - Commission amounts are never computed or displayed; this system records commission-eligible facts only, because commission logic is owned externally.
+- Appearance is controlled by the root `dark` class and the persisted `aurumi-theme` preference, so system, dark, and light modes stay consistent across every screen.

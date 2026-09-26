@@ -6,7 +6,7 @@
 
 /*
  * Aurumi Link & Attribution — internal infrastructure console.
- * Dark slate surfaces, gold/amber accent, signal colors for attribution methods.
+ * Light and dark console surfaces, gold/amber accent, signal colors for attribution methods.
  * All colors are oklch semantic tokens. Never hardcode colors in components.
  */
 
@@ -64,6 +64,51 @@
 
 :root {
   --radius: 0.5rem;
+  --background: oklch(0.975 0.004 84);
+  --foreground: oklch(0.22 0.018 258);
+  --surface: oklch(1 0 0);
+  --surface-foreground: oklch(0.22 0.018 258);
+  --elevated: oklch(0.955 0.006 84);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.018 258);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.018 258);
+  --primary: oklch(0.56 0.13 78);
+  --primary-foreground: oklch(0.99 0.004 84);
+  --secondary: oklch(0.94 0.008 255);
+  --secondary-foreground: oklch(0.28 0.018 258);
+  --muted: oklch(0.945 0.006 84);
+  --muted-foreground: oklch(0.5 0.018 256);
+  --accent: oklch(0.93 0.014 82);
+  --accent-foreground: oklch(0.25 0.025 258);
+  --destructive: oklch(0.56 0.2 25);
+  --destructive-foreground: oklch(0.99 0.004 84);
+  --border: oklch(0.87 0.01 258);
+  --input: oklch(0.86 0.012 258);
+  --ring: oklch(0.56 0.13 78);
+  --deterministic: oklch(0.48 0.14 158);
+  --claimed: oklch(0.56 0.13 78);
+  --matched: oklch(0.52 0.15 250);
+  --unattributed: oklch(0.52 0.025 258);
+  --chart-1: oklch(0.56 0.13 78);
+  --chart-2: oklch(0.48 0.14 158);
+  --chart-3: oklch(0.52 0.15 250);
+  --chart-4: oklch(0.58 0.17 25);
+  --chart-5: oklch(0.56 0.14 310);
+  --sidebar: oklch(0.94 0.008 258);
+  --sidebar-foreground: oklch(0.25 0.018 258);
+  --sidebar-primary: oklch(0.56 0.13 78);
+  --sidebar-primary-foreground: oklch(0.99 0.004 84);
+  --sidebar-accent: oklch(0.885 0.014 258);
+  --sidebar-accent-foreground: oklch(0.2 0.02 258);
+  --sidebar-border: oklch(0.83 0.012 258);
+  --sidebar-ring: oklch(0.56 0.13 78);
+  --page-glow-warm: oklch(0.74 0.11 84 / 10%);
+  --page-glow-cool: oklch(0.7 0.1 245 / 7%);
+  --shadow-panel: 0 1px 2px oklch(0.2 0.01 258 / 6%), 0 12px 30px -22px oklch(0.2 0.01 258 / 24%);
+}
+
+.dark {
   --background: oklch(0.17 0.014 260);
   --foreground: oklch(0.96 0.005 250);
   --surface: oklch(0.21 0.015 258);
@@ -103,11 +148,9 @@
   --sidebar-accent-foreground: oklch(0.96 0.005 250);
   --sidebar-border: oklch(0.27 0.015 258);
   --sidebar-ring: oklch(0.8 0.135 84);
-}
-
-.dark {
-  --background: oklch(0.17 0.014 260);
-  --foreground: oklch(0.96 0.005 250);
+  --page-glow-warm: oklch(0.8 0.135 84 / 10%);
+  --page-glow-cool: oklch(0.7 0.13 245 / 8%);
+  --shadow-panel: 0 1px 0 0 oklch(1 0 0 / 4%) inset, 0 18px 40px -24px oklch(0 0 0 / 60%);
 }
 
 @layer base {
@@ -122,10 +165,10 @@
     background-image:
       radial-gradient(
         ellipse 70% 50% at 12% -10%,
-        oklch(0.8 0.135 84 / 10%),
+        var(--page-glow-warm),
         transparent 60%
       ),
-      radial-gradient(ellipse 60% 45% at 95% 0%, oklch(0.7 0.13 245 / 8%), transparent 60%);
+      radial-gradient(ellipse 60% 45% at 95% 0%, var(--page-glow-cool), transparent 60%);
     background-attachment: fixed;
   }
 

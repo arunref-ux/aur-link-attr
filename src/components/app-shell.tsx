@@ -8,6 +8,7 @@ import {
   Target,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
@@ -26,12 +27,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="grid size-9 place-items-center rounded-md bg-primary font-display text-sm font-bold text-primary-foreground">
             AU
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="font-display text-sm font-semibold text-sidebar-foreground">
               Link &amp; Attribution
             </p>
             <p className="label-eyebrow">Aurumi Internal</p>
           </div>
+          <ThemeSwitcher />
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col lg:overflow-visible lg:pb-6">
           {NAV.map(({ to, label, icon: Icon }) => (

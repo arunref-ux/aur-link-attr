@@ -124,9 +124,9 @@ export interface CreateLinkInput {
   channel: Channel;
   app: AppName;
   destination: DestinationType;
-  destination_value?: string | null;
-  demo_experience_id?: string | null;
-  metadata?: AttributionLink["metadata"];
+  destination_value?: string | null | undefined;
+  demo_experience_id?: string | null | undefined;
+  metadata?: AttributionLink["metadata"] | undefined;
 }
 
 export interface CreateCampaignInput {
@@ -143,12 +143,12 @@ export interface CreateCampaignInput {
 }
 
 export interface LinkFilters {
-  campaign_id?: string;
-  partner_id?: string;
-  channel?: Channel;
-  app?: AppName;
-  status?: "ACTIVE" | "DISABLED";
-  query?: string;
+  campaign_id?: string | undefined;
+  partner_id?: string | undefined;
+  channel?: Channel | undefined;
+  app?: AppName | undefined;
+  status?: "ACTIVE" | "DISABLED" | undefined;
+  query?: string | undefined;
 }
 
 export interface LinkRow extends AttributionLink {
@@ -158,14 +158,14 @@ export interface LinkRow extends AttributionLink {
 }
 
 export interface ConversionFilters {
-  partner_id?: string;
-  campaign_id?: string;
-  channel?: Channel;
-  app?: AppName;
-  attribution_method?: AttributionMethod;
-  stage?: "SIGNED_UP" | "TENANT" | "ACTIVATED" | "PAID";
-  period_days?: number;
-  query?: string;
+  partner_id?: string | undefined;
+  campaign_id?: string | undefined;
+  channel?: Channel | undefined;
+  app?: AppName | undefined;
+  attribution_method?: AttributionMethod | undefined;
+  stage?: "SIGNED_UP" | "TENANT" | "ACTIVATED" | "PAID" | undefined;
+  period_days?: number | undefined;
+  query?: string | undefined;
 }
 
 export const attributionProvider = {
@@ -539,7 +539,6 @@ export interface OverviewMetrics {
   byApp: BreakdownRow[];
   byCampaign: BreakdownRow[];
   byMethod: { key: AttributionMethod; count: number }[];
-  trend: { date: string; clicks: number; signups: number; paid: number }[];
 }
 
 function funnelFor(attributions: Attribution[], clicks: number): FunnelStageRow[] {
@@ -612,25 +611,6 @@ function computeOverview(periodDays: number): OverviewMetrics {
   );
   const clicks = clickEvents.length;
   const attributed = attributions.filter((a) => a.attribution_method !== "UNATTRIBUTED").length;
-
-  const days = Math.min(periodDays, 90);
-  const trend: OverviewMetrics["trend"] = [];
-  for (let i = days - 1; i >= 0; i -= 1) {
-    const dayStart = SIMULATED_NOW.getTime() - i * 86_400_000;
-    const dayEnd = dayStart + 86_400_000;
-    const within = (isoString: string) => {
-      const t = new Date(isoString).getTime();
-      return t >= dayStart - 86_400_000 && t < dayEnd - 86_400_000;
-    };
-    trend.push({
-      date: new Date(dayStart - 86_400_000).toISOString().slice(0, 10),
-      clicks: clickEvents.filter((e) => within(e.occurred_at)).length,
-      signups: attributions.filter((a) => a.signup_at && within(a.signup_at)).length,
-      paid: attributions.filter(
-        (a) => a.first_payment && within(a.first_payment.occurred_at),
-      ).length,
-    });
-  }
 
   const methods: AttributionMethod[] = ["DETERMINISTIC", "CLAIMED", "MATCHED", "UNATTRIBUTED"];
 

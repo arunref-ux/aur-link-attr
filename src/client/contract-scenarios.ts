@@ -136,44 +136,35 @@ async function run(id: ScenarioId): Promise<Omit<ScenarioResult, "id" | "title">
       };
     }
     case "concurrent-first-launch": {
-      let s = await clicked();
-      let racer: SimulationState | null = null;
-      const before = repo.counts();
-      s = await simulationProvider.step(s, "FIRST_LAUNCH", {
+      const c = await clicked();
+      const token = c.technical[0]!.correlation.find((h) => h.label === "aur_at")!.value;
+      const req: FirstLaunchRequest = {
+        ...directLaunch("INS-RACE-1", "fl-race-1"),
+        acquisition_token: token,
+      };
+      const cred = { source_system: "AURA_ANDROID" };
+      let twin = 0;
+      // Request A holds the idempotency claim; identical request B arrives before A commits.
+      const a = simulatedBackend.firstLaunch(req, cred, {
         beforeCommit: () => {
-          // Identical request arrives while the first holds the idempotency claim.
-          const req = s.last_request;
-          void req;
+          twin = simulatedBackend.firstLaunch(req, cred).http.status;
         },
       });
-      // Deterministic race: replay the identical request "during" the first, then after.
-      const first = s.last_request!;
-      if (first.kind !== "FIRST_LAUNCH") throw new Error("unexpected");
-      const req2 = { ...first.request, source_event_id: `${first.request.source_event_id}-race` };
-      let inFlight = 0;
-      simulatedBackend.firstLaunch(req2, first.credential, {
-        beforeCommit: () => {
-          const out = simulatedBackend.firstLaunch(req2, first.credential);
-          inFlight = out.http.status;
-        },
-      });
-      const after = simulatedBackend.firstLaunch(req2, first.credential);
-      racer = s;
-      const installs = store.installs.filter((i) => i.install_id === first.request.installation_id).length;
-      const opens = store.events.filter(
-        (e) => e.event_type === "FIRST_OPEN" && e.install_id === first.request.installation_id,
-      ).length;
-      void racer;
-      void before;
+      const later = simulatedBackend.firstLaunch(req, cred);
+      const installs = store.installs.filter((i) => i.install_id === "INS-RACE-1").length;
+      const opens = store.events.filter((e) => e.event_type === "FIRST_OPEN" && e.install_id === "INS-RACE-1").length;
+      const res = store.resolutions.filter((r) => r.acquisition_journey_id === c.acquisition_journey_id).length;
       return {
-        expected: "concurrent twin sees 409 IN_PROGRESS; later retry replays; one canonical install + FIRST_OPEN",
-        observed: `in-flight twin ${inFlight}; later twin duplicate = ${after.http.body.success ? after.http.body.duplicate : "error"}; installs ${installs}, first opens ${opens}`,
+        expected: "twin during claim → 409 IN_PROGRESS; later retry replays; one install, one FIRST_OPEN, one resolution",
+        observed: `A ${a.http.status}; in-flight twin ${twin}; later duplicate = ${later.http.body.success ? later.http.body.duplicate : "error"}; installs ${installs}, first opens ${opens}, resolutions ${res}`,
         pass:
-          inFlight === 409 &&
-          after.http.body.success === true &&
-          after.http.body.duplicate === true &&
+          a.http.status === 200 &&
+          twin === 409 &&
+          later.http.body.success === true &&
+          later.http.body.duplicate === true &&
           installs === 1 &&
-          opens === 1,
+          opens === 1 &&
+          res === 1,
       };
     }
     case "same-installation": {

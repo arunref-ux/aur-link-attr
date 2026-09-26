@@ -8,7 +8,9 @@
 
 import { applyResolution, nextId, pushEvent, store } from "@/data/store";
 import type {
+  AcquisitionJourney,
   AcquisitionSession,
+  SignupBinding,
   Attribution,
   AttributionEvent,
   AttributionLink,
@@ -27,6 +29,7 @@ export type NewEvent = Parameters<typeof pushEvent>[0];
 
 export interface AttributionLookup {
   attribution_id?: string | undefined;
+  acquisition_journey_id?: string | undefined;
   device_session_id?: string | undefined;
   install_id?: string | undefined;
   user_id?: string | undefined;
@@ -46,12 +49,23 @@ export interface AttributionRepository {
   findSessionByToken(token: string): AcquisitionSession | null;
   findSession(id: string): AcquisitionSession | null;
   findSessionByClick(clickId: string): AcquisitionSession | null;
+  findSessionByDeviceHint(hint: string): AcquisitionSession | null;
+  listClicksForJourney(journeyId: string): Click[];
+  /* journeys (canonical subject) + read model */
+  insertJourney(journey: AcquisitionJourney): void;
+  findJourney(id: string): AcquisitionJourney | null;
+  findJourneyBy(q: { user_id?: string | undefined; signup_id?: string | undefined; tenant_id?: string | undefined; install_id?: string | undefined }): AcquisitionJourney | null;
+  insertAttribution(attribution: Attribution): void;
+  /* signup bindings */
+  insertBinding(binding: SignupBinding): void;
+  findBindingByToken(token: string): SignupBinding | null;
   /* installs */
   findInstall(installId: string): Install | null;
   insertInstall(install: Install): void;
   /* events (append-only) + idempotency */
   findIdempotency(sourceSystem: string, sourceEventId: string): IdempotencyRecord | null;
-  saveIdempotency(record: IdempotencyRecord): void;
+  /** INSERT … ; throws on UNIQUE(source_system, source_event_id). */
+  claimIdempotency(record: IdempotencyRecord): void;
   appendEvent(event: NewEvent): AttributionEvent;
   hasEvent(attributionId: string, type: AttributionEvent["event_type"]): boolean;
   /* attributions / resolutions / projection */
@@ -74,6 +88,9 @@ export interface AttributionRepository {
 }
 
 export interface RepositoryCounts {
+  acquisition_journeys: number;
+  signup_bindings: number;
+  idempotency_records: number;
   events: number;
   clicks: number;
   acquisition_sessions: number;
@@ -94,6 +111,8 @@ const MUTABLE_TABLES = [
   "idempotency",
   "links",
   "partners",
+  "acquisitionJourneys",
+  "signupBindings",
 ] as const;
 
 export interface RepositorySnapshot {
@@ -126,7 +145,40 @@ export const simulatedRepository: AttributionRepository = {
   },
   findSessionByToken: (token) =>
     store.acquisitionSessions.find((s) => s.public_acquisition_token === token) ?? null,
-  findSessionByClick: (id) => store.acquisitionSessions.find((s) => s.click_id === id) ?? null,
+  findSessionByClick: (id) => {
+    const click = store.clicks.find((c) => c.click_id === id);
+    return (
+      store.acquisitionSessions.find(
+        (s) => s.acquisition_session_id === click?.acquisition_session_id,
+      ) ?? null
+    );
+  },
+  findSessionByDeviceHint: (hint) =>
+    [...store.acquisitionSessions].reverse().find((s) => s.device_session_id === hint) ?? null,
+  listClicksForJourney: (id) => store.clicks.filter((c) => c.acquisition_journey_id === id),
+  insertJourney: (j) => {
+    if (store.acquisitionJourneys.some((x) => x.acquisition_journey_id === j.acquisition_journey_id))
+      throw new Error("UNIQUE violation: acquisition_journeys.id");
+    store.acquisitionJourneys.push(j);
+  },
+  findJourney: (id) => store.acquisitionJourneys.find((j) => j.acquisition_journey_id === id) ?? null,
+  findJourneyBy: (q) =>
+    store.acquisitionJourneys.find(
+      (j) =>
+        (q.tenant_id && j.tenant_id === q.tenant_id) ||
+        (q.signup_id && j.signup_id === q.signup_id) ||
+        (q.user_id && j.user_id === q.user_id) ||
+        (q.install_id && j.install_id === q.install_id),
+    ) ?? null,
+  insertAttribution: (a) => {
+    store.attributions.push(a);
+  },
+  insertBinding: (b) => {
+    if (store.signupBindings.some((x) => x.public_token === b.public_token))
+      throw new Error("UNIQUE violation: signup_bindings.public_token");
+    store.signupBindings.push(b);
+  },
+  findBindingByToken: (t) => store.signupBindings.find((b) => b.public_token === t) ?? null,
   findSession: (id) =>
     store.acquisitionSessions.find((s) => s.acquisition_session_id === id) ?? null,
 
@@ -139,11 +191,14 @@ export const simulatedRepository: AttributionRepository = {
   },
 
   findIdempotency: (sys, id) =>
-    store.idempotency.find((r) => r.source_system === sys && r.source_event_id === id) ??
-    (store.events.some((e) => e.source_system === sys && e.source_event_id === id)
-      ? { source_system: sys, source_event_id: id, received_at: "", response: null }
-      : null),
-  saveIdempotency: (record) => {
+    store.idempotency.find((r) => r.source_system === sys && r.source_event_id === id) ?? null,
+  claimIdempotency: (record) => {
+    if (
+      store.idempotency.some(
+        (r) => r.source_system === record.source_system && r.source_event_id === record.source_event_id,
+      )
+    )
+      throw new Error("UNIQUE violation: idempotency_records(source_system, source_event_id)");
     store.idempotency.push(record);
   },
   appendEvent: (event) => {
@@ -165,6 +220,7 @@ export const simulatedRepository: AttributionRepository = {
     store.attributions.find(
       (a) =>
         (q.attribution_id && a.attribution_id === q.attribution_id) ||
+        (q.acquisition_journey_id && a.acquisition_journey_id === q.acquisition_journey_id) ||
         (q.tenant_id && a.tenant_id === q.tenant_id) ||
         (q.signup_id && a.signup_id === q.signup_id) ||
         (q.user_id && a.user_id === q.user_id) ||
@@ -172,7 +228,7 @@ export const simulatedRepository: AttributionRepository = {
         (q.device_session_id && a.session_id === q.device_session_id),
     ) ?? null,
   recordResolution: (attribution, res) => applyResolution(attribution, res),
-  listResolutions: (id) => store.resolutions.filter((r) => r.subject_id === id),
+  listResolutions: (id) => store.resolutions.filter((r) => r.acquisition_journey_id === id),
 
   insertConversion: (c) => {
     if (
@@ -223,6 +279,9 @@ export const simulatedRepository: AttributionRepository = {
     store.rulesVersion = snap.rulesVersion;
   },
   counts: () => ({
+    acquisition_journeys: store.acquisitionJourneys.length,
+    signup_bindings: store.signupBindings.length,
+    idempotency_records: store.idempotency.length,
     events: store.events.length,
     clicks: store.clicks.length,
     acquisition_sessions: store.acquisitionSessions.length,

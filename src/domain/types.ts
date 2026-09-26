@@ -157,7 +157,12 @@ export interface AttributionContext {
 
 export interface Click {
   click_id: string;
+  /** Legacy simulation device session. Production correlation uses acquisition_journey_id. */
   session_id: string;
+  /** V1.2: owning journey + session (absent on legacy seeded clicks). */
+  acquisition_journey_id?: string | undefined;
+  acquisition_session_id?: string | undefined;
+  received_at?: string | undefined;
   link_id: string;
   token: string;
   campaign_id: string;
@@ -171,7 +176,9 @@ export interface Click {
 }
 
 export interface Install {
+  /** installation_id — UNIQUE(app, installation_id). */
   install_id: string;
+  acquisition_journey_id?: string | undefined;
   click_id: string | null;
   session_id: string;
   app: AppName;
@@ -212,7 +219,10 @@ export interface AttributionEvent {
 }
 
 export interface Attribution {
+  /** For V1.2 journeys this equals acquisition_journey_id (read model keyed by the journey). */
   attribution_id: string;
+  /** Null on legacy seeded journeys that predate the V1.2 journey lifecycle. */
+  acquisition_journey_id?: string | null | undefined;
   partner_id: string | null;
   partner_name_snapshot: string | null;
   partner_type_snapshot: PartnerType | null;
@@ -307,23 +317,58 @@ export type FunnelStage =
 /** acquisition_sessions — created by the Redirect Service for every eligible click. */
 export interface AcquisitionSession {
   acquisition_session_id: string;
+  acquisition_journey_id: string;
   link_id: string;
-  click_id: string;
   /** Opaque, server-generated. Travels as `aur_at` in the Play Install Referrer. */
   public_acquisition_token: string;
   platform: Platform;
   started_at: string;
   expires_at: string;
   status: "OPEN" | "INSTALLED" | "EXPIRED";
-  /** Simulator only: the simulated browser/device session the click happened in. */
+  /** Legacy simulation metadata only (simulated iOS matching). NOT a production correlation key. */
   device_session_id: string;
+}
+
+export type JourneyOriginType =
+  "ATTRIBUTION_LINK" | "DIRECT_FIRST_LAUNCH" | "CLAIMED" | "MATCHED" | "OTHER";
+
+/** acquisition_journeys — the canonical attribution subject. Exists independently of attribution success. */
+export interface AcquisitionJourney {
+  acquisition_journey_id: string;
+  origin_type: JourneyOriginType;
+  created_at: string;
+  updated_at: string;
+  first_acquisition_session_id: string | null;
+  install_id: string | null;
+  user_id: string | null;
+  signup_id: string | null;
+  tenant_id: string | null;
+  app: AppName;
+  status: "OPEN" | "INSTALLED" | "SIGNED_UP" | "TENANT";
+  /** Technical metadata recorded at first launch. */
+  acquisition_token_status: "NOT_APPLICABLE" | "VALID" | "ABSENT" | "UNKNOWN";
+  /** Normalized referral claims (from the Partner Portal lookup) attached at signup. */
+  claims: { partner_id: string; code: string; occurred_at: string }[];
+}
+
+/** signup_bindings — opaque server-issued handoff from installation to signup. */
+export interface SignupBinding {
+  signup_binding_id: string;
+  public_token: string;
+  acquisition_journey_id: string;
+  installation_id: string;
+  status: "ISSUED" | "CONSUMED" | "EXPIRED" | "REVOKED";
+  expires_at: string;
+  created_at: string;
+  consumed_at: string | null;
+  /** The one canonical signup this binding may attach. */
+  bound_signup_id: string | null;
 }
 
 /** attribution_resolutions — what the engine concluded at a point in time. Immutable. */
 export interface AttributionResolution {
   resolution_id: string;
-  subject_type: "ATTRIBUTION";
-  subject_id: string;
+  acquisition_journey_id: string;
   acquisition_session_id: string | null;
   partner_id: string | null;
   campaign_id: string | null;
@@ -341,8 +386,7 @@ export interface AttributionResolution {
 
 /** current_attribution — read-optimized projection; may change after an override. */
 export interface CurrentAttributionProjection {
-  subject_type: "ATTRIBUTION";
-  subject_id: string;
+  acquisition_journey_id: string;
   current_resolution_id: string;
   partner_id: string | null;
   campaign_id: string | null;
@@ -378,11 +422,16 @@ export interface ConversionEvent {
   metadata: Record<string, string | number | boolean | null>;
 }
 
-/** Idempotency ledger backing UNIQUE(source_system, source_event_id). */
+/** idempotency_records — UNIQUE(source_system, source_event_id), claimed inside the transaction. */
 export interface IdempotencyRecord {
   source_system: string;
   source_event_id: string;
-  received_at: string;
-  /** Stored original response, replayed verbatim on retries. */
-  response: unknown;
+  /** Deterministic hash of the canonical business request (excludes server values). */
+  request_hash: string;
+  status: "IN_PROGRESS" | "COMPLETED";
+  response_code: number | null;
+  /** Stored original response, replayed on exact retries. */
+  response_body: unknown;
+  created_at: string;
+  completed_at: string | null;
 }

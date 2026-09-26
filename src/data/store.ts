@@ -7,7 +7,9 @@
  */
 
 import type {
+  AcquisitionJourney,
   AcquisitionSession,
+  SignupBinding,
   Attribution,
   AttributionResolution,
   ConversionEvent,
@@ -58,6 +60,8 @@ export interface StoreShape {
   currentAttribution: Record<string, CurrentAttributionProjection>;
   conversionEvents: ConversionEvent[];
   idempotency: IdempotencyRecord[];
+  acquisitionJourneys: AcquisitionJourney[];
+  signupBindings: SignupBinding[];
   /** Active rules version; every new resolution is stamped with it. */
   rulesVersion: string;
 }
@@ -279,7 +283,7 @@ const campaigns: Campaign[] = [
       "Tally reseller network pushes Aura through WhatsApp to accounting-led SMB prospects.",
     status: "ACTIVE",
     start_date: "2026-09-01T00:00:00.000Z",
-    end_date: "2026-09-30T00:00:00.000Z",
+    end_date: "2026-12-31T00:00:00.000Z",
     target_app: "AURA",
     default_destination: "SIGNUP",
     default_channel: "WHATSAPP",
@@ -568,6 +572,8 @@ export const store: StoreShape = {
   currentAttribution: {},
   conversionEvents: [],
   idempotency: [],
+  acquisitionJourneys: [],
+  signupBindings: [],
   rulesVersion: "ATTR-RULES-1",
 };
 
@@ -693,12 +699,20 @@ function makeClick(
   };
 }
 
+/** Session → click ownership: clicks reference their session (no sessions.click_id). */
+export function sessionForClick(clickId: string | null): AcquisitionSession | undefined {
+  if (!clickId) return undefined;
+  const click = store.clicks.find((c) => c.click_id === clickId);
+  return click?.acquisition_session_id
+    ? store.acquisitionSessions.find((s) => s.acquisition_session_id === click.acquisition_session_id)
+    : undefined;
+}
+
 /** Write the current_attribution projection row from the attribution's latest resolution. */
 export function projectCurrent(attribution: Attribution, at: string) {
   if (!attribution.current_resolution_id) return;
   store.currentAttribution[attribution.attribution_id] = {
-    subject_type: "ATTRIBUTION",
-    subject_id: attribution.attribution_id,
+    acquisition_journey_id: attribution.acquisition_journey_id ?? attribution.attribution_id,
     current_resolution_id: attribution.current_resolution_id,
     partner_id: attribution.partner_id,
     campaign_id: attribution.campaign_id,
@@ -735,13 +749,10 @@ export function applyResolution(attribution: Attribution, res: ResolutionOutput)
   attribution.attributed_at = res.status === "ATTRIBUTED" ? res.resolved_at : null;
 
   const createdAt = seeding ? res.resolved_at : new Date().toISOString();
-  const session = res.click_id
-    ? store.acquisitionSessions.find((s) => s.click_id === res.click_id)
-    : undefined;
+  const session = sessionForClick(res.click_id);
   const resolution: AttributionResolution = {
     resolution_id: nextId("RES", 5),
-    subject_type: "ATTRIBUTION",
-    subject_id: attribution.attribution_id,
+    acquisition_journey_id: attribution.acquisition_journey_id ?? attribution.attribution_id,
     acquisition_session_id: session?.acquisition_session_id ?? null,
     partner_id: res.partner_id,
     campaign_id: res.campaign_id,
@@ -777,11 +788,8 @@ export function recordOverride(
   const previous = attribution.current_resolution_id ?? null;
   const resolution: AttributionResolution = {
     resolution_id: nextId("RES", 5),
-    subject_type: "ATTRIBUTION",
-    subject_id: attribution.attribution_id,
-    acquisition_session_id:
-      store.acquisitionSessions.find((s) => s.click_id === attribution.click_id)
-        ?.acquisition_session_id ?? null,
+    acquisition_journey_id: attribution.acquisition_journey_id ?? attribution.attribution_id,
+    acquisition_session_id: sessionForClick(attribution.click_id)?.acquisition_session_id ?? null,
     partner_id: target.partner_id,
     campaign_id: attribution.campaign_id,
     link_id: attribution.link_id,

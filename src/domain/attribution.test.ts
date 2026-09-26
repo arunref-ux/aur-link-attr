@@ -52,10 +52,17 @@ describe("Resolution Engine", () => {
     const aThenB = [click("a", "P-A", minutesBefore(60)), click("b", "P-B", minutesBefore(10))];
     const bThenA = [click("b", "P-B", minutesBefore(60)), click("a", "P-A", minutesBefore(10))];
     const run = (facts: Click[], rules = RULES) =>
-      resolveAttribution({ acquisitionFacts: facts, installSignal: androidInstall, referenceTime: REF, rules });
+      resolveAttribution({
+        acquisitionFacts: facts,
+        installSignal: androidInstall,
+        referenceTime: REF,
+        rules,
+      });
     expect(run(aThenB).partner_id).toBe("P-B");
     expect(run(bThenA).partner_id).toBe("P-A");
-    expect(run(aThenB, { ...RULES, conflict_rule: "FIRST_ELIGIBLE_DETERMINISTIC" }).partner_id).toBe("P-A");
+    expect(
+      run(aThenB, { ...RULES, conflict_rule: "FIRST_ELIGIBLE_DETERMINISTIC" }).partner_id,
+    ).toBe("P-A");
   });
 
   it("C — attribution window", () => {
@@ -86,7 +93,12 @@ describe("Resolution Engine", () => {
     expect([r.partner_id, r.campaign_id, r.link_id, r.click_id]).toEqual([null, null, null, null]);
     const lotus = store.attributions.find((a) => a.tenant_name === "Lotus Interiors")!;
     expect(lotus.status).toBe("UNATTRIBUTED");
-    expect([lotus.partner_id, lotus.campaign_id, lotus.link_id, lotus.click_id]).toEqual([null, null, null, null]);
+    expect([lotus.partner_id, lotus.campaign_id, lotus.link_id, lotus.click_id]).toEqual([
+      null,
+      null,
+      null,
+      null,
+    ]);
   });
 
   it("E — referral code resolves through the partner lookup to a CLAIMED result", async () => {
@@ -94,7 +106,12 @@ describe("Resolution Engine", () => {
     const lookup = await partnerProvider.lookupReferralCode(input.referral_code);
     expect(lookup?.partner_id).toBe("P-104");
     const claim = normalizeClaim(lookupReferralCodeIn(store.partners, input.referral_code), REF)!;
-    const r = resolveAttribution({ acquisitionFacts: [], claims: [claim], referenceTime: REF, rules: RULES });
+    const r = resolveAttribution({
+      acquisitionFacts: [],
+      claims: [claim],
+      referenceTime: REF,
+      rules: RULES,
+    });
     expect(r.attribution_method).toBe("CLAIMED");
     expect(r.partner_id).toBe("P-104");
     const geeta = store.attributions.find((a) => a.tenant_name === "Geeta Steel Works")!;
@@ -119,15 +136,21 @@ describe("Simulator behaviour", () => {
     expect(before.partner_id).toBe("P-104");
 
     await attributionProvider.setLinkStatus(link.link_id, "DISABLED");
-    expect((await attributionProvider.resolveLink(link.token))?.available_for_acquisition).toBe(false);
+    expect((await attributionProvider.resolveLink(link.token))?.available_for_acquisition).toBe(
+      false,
+    );
     const clicksBefore = store.clicks.filter((c) => c.link_id === link.link_id).length;
     await expect(simulationProvider.start(link.link_id, "ANDROID")).rejects.toThrow();
     expect(store.clicks.filter((c) => c.link_id === link.link_id).length).toBe(clicksBefore);
     expect(before.partner_id).toBe("P-104");
 
     await attributionProvider.setLinkStatus(link.link_id, "ACTIVE");
-    expect(store.events.some((e) => e.event_type === "LINK_ENABLED" && e.link_id === link.link_id)).toBe(true);
-    expect(store.events.some((e) => e.event_type === "LINK_DISABLED" && e.link_id === link.link_id)).toBe(true);
+    expect(
+      store.events.some((e) => e.event_type === "LINK_ENABLED" && e.link_id === link.link_id),
+    ).toBe(true);
+    expect(
+      store.events.some((e) => e.event_type === "LINK_DISABLED" && e.link_id === link.link_id),
+    ).toBe(true);
     const again = await simulationProvider.start(link.link_id, "ANDROID");
     await simulationProvider.step(again, "CLICK");
     expect(store.clicks.filter((c) => c.link_id === link.link_id).length).toBe(clicksBefore + 1);
@@ -179,13 +202,21 @@ describe("Simulator behaviour", () => {
 
   it("K — First Opens derive only from FIRST_OPEN events", async () => {
     const firstOpens = async () =>
-      (await attributionProvider.getOverview(3650)).funnel.find((f) => f.stage === "First Opens")!.count;
+      (await attributionProvider.getOverview(3650)).funnel.find((f) => f.stage === "First Opens")!
+        .count;
     const start = await firstOpens();
     let s = await simulationProvider.start("LNK-0003", "ANDROID");
-    for (const step of ["CLICK", "INSTALL", "FIRST_OPEN"] as const) s = await simulationProvider.step(s, step);
+    for (const step of ["CLICK", "INSTALL", "FIRST_OPEN"] as const)
+      s = await simulationProvider.step(s, step);
     expect(await firstOpens()).toBe(start + 1);
     let t = await simulationProvider.start("LNK-0003", "ANDROID");
-    for (const step of ["CLICK", "INSTALL", "SIGNUP_STARTED", "SIGNUP_COMPLETED", "TENANT_CREATED"] as const) {
+    for (const step of [
+      "CLICK",
+      "INSTALL",
+      "SIGNUP_STARTED",
+      "SIGNUP_COMPLETED",
+      "TENANT_CREATED",
+    ] as const) {
       t = await simulationProvider.step(t, step);
     }
     expect(await firstOpens()).toBe(start + 1);

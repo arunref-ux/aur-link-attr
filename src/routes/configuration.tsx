@@ -201,8 +201,7 @@ function ConfigurationPage() {
                 onValueChange={(v) =>
                   void patch(
                     {
-                      disabled_link_behavior:
-                        v as AttributionRulesConfig["disabled_link_behavior"],
+                      disabled_link_behavior: v as AttributionRulesConfig["disabled_link_behavior"],
                     },
                     "Disabled link behaviour updated",
                   )
@@ -213,7 +212,9 @@ function ConfigurationPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="REJECT">Reject future clicks</SelectItem>
-                  <SelectItem value="REDIRECT_FALLBACK">Redirect to fallback destination</SelectItem>
+                  <SelectItem value="REDIRECT_FALLBACK">
+                    Redirect to fallback destination
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>

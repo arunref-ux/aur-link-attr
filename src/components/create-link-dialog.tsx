@@ -96,7 +96,14 @@ export function CreateLinkDialog({
         ...(medium ? { medium } : {}),
         ...(creative ? { creative } : {}),
         ...(placement ? { placement } : {}),
-        ...(tags ? { tags: tags.split(",").map((t) => t.trim()).filter(Boolean) } : {}),
+        ...(tags
+          ? {
+              tags: tags
+                .split(",")
+                .map((t) => t.trim())
+                .filter(Boolean),
+            }
+          : {}),
       },
     });
     setCreated(link);
@@ -140,9 +147,7 @@ export function CreateLinkDialog({
             </DialogHeader>
             <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-5 text-center">
               <p className="label-eyebrow">Public link</p>
-              <p className="mono-token mt-2 text-lg text-foreground">
-                https://{created.short_url}
-              </p>
+              <p className="mono-token mt-2 text-lg text-foreground">https://{created.short_url}</p>
               <p className="mono-token mt-1 text-xs text-muted-foreground">
                 token {created.token} · {created.link_id}
               </p>

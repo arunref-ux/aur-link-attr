@@ -8,14 +8,7 @@
 export type AppName = "AURA" | "SHOPTALK" | "AURUMI";
 
 export type Channel =
-  | "WHATSAPP"
-  | "EMAIL"
-  | "SMS"
-  | "QR"
-  | "WEB"
-  | "SOCIAL"
-  | "DIRECT_SHARE"
-  | "OTHER";
+  "WHATSAPP" | "EMAIL" | "SMS" | "QR" | "WEB" | "SOCIAL" | "DIRECT_SHARE" | "OTHER";
 
 export type Platform = "ANDROID" | "IOS" | "WEB";
 
@@ -35,11 +28,7 @@ export type LinkStatus = "ACTIVE" | "DISABLED";
 export type AttributionMethod = "DETERMINISTIC" | "CLAIMED" | "MATCHED" | "UNATTRIBUTED";
 
 export type AttributionStatus =
-  | "PENDING"
-  | "ATTRIBUTED"
-  | "UNATTRIBUTED"
-  | "OVERRIDDEN"
-  | "INVALIDATED";
+  "PENDING" | "ATTRIBUTED" | "UNATTRIBUTED" | "OVERRIDDEN" | "INVALIDATED";
 
 export type EventType =
   | "LINK_CREATED"
@@ -65,10 +54,7 @@ export type EventType =
 /* ---------- External references (read-only in this system) ---------- */
 
 export type PartnerType =
-  | "TALLY_RESELLER"
-  | "ESSL_RESELLER"
-  | "TECHNOLOGY_PARTNER"
-  | "REFERRAL_PARTNER";
+  "TALLY_RESELLER" | "ESSL_RESELLER" | "TECHNOLOGY_PARTNER" | "REFERRAL_PARTNER";
 
 export interface Partner {
   partner_id: string;
@@ -307,10 +293,4 @@ export interface DomainDescriptor {
 }
 
 export type FunnelStage =
-  | "CLICKS"
-  | "INSTALLS"
-  | "FIRST_OPENS"
-  | "SIGNUPS"
-  | "TENANTS"
-  | "ACTIVATED"
-  | "PAID";
+  "CLICKS" | "INSTALLS" | "FIRST_OPENS" | "SIGNUPS" | "TENANTS" | "ACTIVATED" | "PAID";

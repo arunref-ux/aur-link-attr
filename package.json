@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "vitest run"
+    "test": "vitest run --config vitest.config.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"

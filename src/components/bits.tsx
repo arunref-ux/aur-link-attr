@@ -209,7 +209,9 @@ export function BreakdownTable({
               <td className="mono-token py-2.5 text-right">{row.signups}</td>
               <td className="mono-token py-2.5 text-right">{row.tenants}</td>
               <td className="mono-token py-2.5 text-right text-primary">{row.paid}</td>
-              <td className="mono-token py-2.5 text-right">{formatPercent(row.attribution_rate)}</td>
+              <td className="mono-token py-2.5 text-right">
+                {formatPercent(row.attribution_rate)}
+              </td>
             </tr>
           ))}
         </tbody>

@@ -639,7 +639,11 @@ export function partnerNameOf(id: string): string | null {
 }
 
 /** Deterministic install signal availability is a platform FACT, not a decision. */
-export function installSignalFor(platform: Platform, occurred_at: string, referrer_lost = false): InstallSignal {
+export function installSignalFor(
+  platform: Platform,
+  occurred_at: string,
+  referrer_lost = false,
+): InstallSignal {
   return {
     platform,
     occurred_at,
@@ -647,7 +651,12 @@ export function installSignalFor(platform: Platform, occurred_at: string, referr
   };
 }
 
-function makeClick(link: AttributionLink, session_id: string, platform: Platform, at: string): Click {
+function makeClick(
+  link: AttributionLink,
+  session_id: string,
+  platform: Platform,
+  at: string,
+): Click {
   return {
     click_id: nextId("CLK", 5),
     session_id,
@@ -1234,7 +1243,15 @@ const reaches: JourneyStage[] = [
   "PAYMENT",
   "PAYMENT",
 ];
-const activeLinkIds = ["LNK-0001", "LNK-0002", "LNK-0003", "LNK-0004", "LNK-0005", "LNK-0006", "LNK-0008"];
+const activeLinkIds = [
+  "LNK-0001",
+  "LNK-0002",
+  "LNK-0003",
+  "LNK-0004",
+  "LNK-0005",
+  "LNK-0006",
+  "LNK-0008",
+];
 for (let i = 0; i < tenantNames.length; i += 1) {
   const platform: Platform = pick<Platform>(["ANDROID", "ANDROID", "ANDROID", "IOS", "WEB"]);
   const organic = rand() < 0.12;

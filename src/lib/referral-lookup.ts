@@ -16,7 +16,10 @@ export interface ReferralLookupResult {
   source_system: "PARTNER_PORTAL";
 }
 
-export function lookupReferralCodeIn(partners: Partner[], code: string): ReferralLookupResult | null {
+export function lookupReferralCodeIn(
+  partners: Partner[],
+  code: string,
+): ReferralLookupResult | null {
   const normalized = code.trim().toUpperCase();
   const partner = partners.find(
     (p) => p.status === "ACTIVE" && p.referral_code.toUpperCase() === normalized,

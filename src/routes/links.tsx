@@ -186,7 +186,11 @@ function LinksPage() {
                           size="sm"
                           variant="outline"
                           disabled={l.status !== "ACTIVE"}
-                          title={l.status !== "ACTIVE" ? "Disabled links cannot start new journeys" : undefined}
+                          title={
+                            l.status !== "ACTIVE"
+                              ? "Disabled links cannot start new journeys"
+                              : undefined
+                          }
                           onClick={() => setJourneyLink(l)}
                         >
                           <PlayCircle className="size-4" /> Test journey

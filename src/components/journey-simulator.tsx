@@ -22,7 +22,13 @@ import {
 } from "@/components/ui/select";
 import type { Platform } from "@/domain/types";
 import { APP_LABEL, CHANNEL_LABEL, formatCurrency, formatTime } from "@/lib/format";
-import { attributionProvider, simulationProvider, type LinkRow, type SimulationState, type SimulationStep } from "@/providers";
+import {
+  attributionProvider,
+  simulationProvider,
+  type LinkRow,
+  type SimulationState,
+  type SimulationStep,
+} from "@/providers";
 
 const STEPS: { step: SimulationStep; label: string; button: string }[] = [
   { step: "CLICK", label: "Redirect", button: "Simulate Link Click" },
@@ -98,7 +104,10 @@ export function JourneySimulator({
         <div className="rounded-lg border border-border bg-muted/30 p-4">
           <p className="label-eyebrow">Step 1 — Link shared</p>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-            <Row label="Partner" value={link.partner_name_snapshot ?? "No partner (owned channel)"} />
+            <Row
+              label="Partner"
+              value={link.partner_name_snapshot ?? "No partner (owned channel)"}
+            />
             <Row label="Channel" value={CHANNEL_LABEL[link.channel]} />
             <Row label="Campaign" value={link.campaign_name} />
             <Row label="Link" value={link.short_url} mono />
@@ -214,7 +223,9 @@ export function JourneySimulator({
                 </p>
               </div>
             ) : null}
-            <SourceNote system="Price Admin">plan and price version referenced, never calculated here</SourceNote>
+            <SourceNote system="Price Admin">
+              plan and price version referenced, never calculated here
+            </SourceNote>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">
                 {events?.length ?? 0} events recorded on this journey

@@ -25,6 +25,7 @@ import type {
   PriceVersion,
   ProviderDescriptor,
 } from "@/domain/types";
+import { lookupReferralCodeIn, normalizeClaim } from "@/lib/referral-lookup";
 import {
   resolveAttribution,
   type AttributionClaim,
@@ -68,11 +69,35 @@ function pick<T>(items: T[]): T {
   return items[Math.floor(rand() * items.length)]!;
 }
 
+/**
+ * Simulator ID generation. Every seeded or generated ID is registered, and the
+ * generator skips anything already occupied — so interactive creation can never
+ * collide with seeded IDs (e.g. LNK-0001, T-008291).
+ */
 const counters: Record<string, number> = {};
-export function nextId(prefix: string, pad = 4): string {
-  counters[prefix] = (counters[prefix] ?? 0) + 1;
-  return `${prefix}-${String(counters[prefix]).padStart(pad, "0")}`;
+const usedIds = new Set<string>();
+export function reserveId(id: string): void {
+  usedIds.add(id);
 }
+export function nextId(prefix: string, pad = 4): string {
+  let id: string;
+  do {
+    counters[prefix] = (counters[prefix] ?? 0) + 1;
+    id = `${prefix}-${String(counters[prefix]).padStart(pad, "0")}`;
+  } while (usedIds.has(id));
+  usedIds.add(id);
+  return id;
+}
+
+/** Generate an opaque token not already used by any link in the dataset. */
+export function makeUniqueToken(): string {
+  let token = makeToken();
+  while (store.links.some((l) => l.token === token)) token = makeToken();
+  return token;
+}
+
+/** True while module-level seeding runs; seeded events are "received" when they occurred. */
+let seeding = true;
 
 function iso(base: Date, minutes: number): string {
   return new Date(base.getTime() + minutes * 60_000).toISOString();
@@ -88,6 +113,7 @@ function daysAgo(days: number, minuteOfDay = 620): Date {
 const partners: Partner[] = [
   {
     partner_id: "P-104",
+    referral_code: "SRISAI104",
     name: "Sri Sai Tally Solutions",
     partner_type: "TALLY_RESELLER",
     status: "ACTIVE",
@@ -98,6 +124,7 @@ const partners: Partner[] = [
   },
   {
     partner_id: "P-118",
+    referral_code: "HBS118",
     name: "Hyderabad Business Systems",
     partner_type: "TECHNOLOGY_PARTNER",
     status: "ACTIVE",
@@ -108,6 +135,7 @@ const partners: Partner[] = [
   },
   {
     partner_id: "P-131",
+    referral_code: "VERTEX131",
     name: "Vertex eSSL Solutions",
     partner_type: "ESSL_RESELLER",
     status: "ACTIVE",
@@ -118,6 +146,7 @@ const partners: Partner[] = [
   },
   {
     partner_id: "P-145",
+    referral_code: "VIZAG145",
     name: "Vizag Accounting Technologies",
     partner_type: "TALLY_RESELLER",
     status: "ACTIVE",
@@ -128,6 +157,7 @@ const partners: Partner[] = [
   },
   {
     partner_id: "P-152",
+    referral_code: "METRO152",
     name: "Metro Biometric Systems",
     partner_type: "REFERRAL_PARTNER",
     status: "ACTIVE",
@@ -172,6 +202,12 @@ const plans: Plan[] = [
     source_system: "PRICE_ADMIN",
   },
   {
+    plan_id: "PL-AURUMI-SUITE",
+    name: "Aurumi Business Suite",
+    app: "AURUMI",
+    source_system: "PRICE_ADMIN",
+  },
+  {
     plan_id: "PL-ST-STARTER",
     name: "ShopTalk Starter",
     app: "SHOPTALK",
@@ -180,6 +216,14 @@ const plans: Plan[] = [
 ];
 
 const priceVersions: PriceVersion[] = [
+  {
+    price_version_id: "PV-262",
+    plan_id: "PL-AURUMI-SUITE",
+    amount: 6999,
+    currency: "INR",
+    effective_from: "2026-07-01T00:00:00.000Z",
+    source_system: "PRICE_ADMIN",
+  },
   {
     price_version_id: "PV-239",
     plan_id: "PL-ST-BUSINESS",
@@ -426,7 +470,8 @@ const links: AttributionLink[] = linkSeeds.map((seed) => {
     destination: seed.destination,
     destination_value: seed.destination === "FEATURE" ? "aura/attendance" : null,
     demo_experience_id: seed.demo_experience_id ?? null,
-    status: seed.status ?? "ACTIVE",
+    // Links disabled in the seed are disabled AFTER their historical journeys run.
+    status: "ACTIVE",
     disabled_behavior: "REJECT",
     metadata: seed.metadata ?? {},
     created_by: "priya.n@aurumi.ai",
@@ -507,6 +552,16 @@ export const store: StoreShape = {
   domains,
 };
 
+for (const id of [
+  ...partners.map((p) => p.partner_id),
+  ...campaigns.map((c) => c.campaign_id),
+  ...links.map((l) => l.link_id),
+  "T-008291",
+  "TX-92883",
+]) {
+  reserveId(id);
+}
+
 /* --------------------------- journey generation --------------------------- */
 
 const STAGES = [
@@ -533,8 +588,8 @@ interface JourneySeed {
   email: string;
   reach: JourneyStage;
   price_version_id?: string | undefined;
-  /** Referral code the user typed at signup (a fact; the engine decides if it counts). */
-  claim?: { partner_id: string; code: string } | undefined;
+  /** Referral code the user typed at signup (a fact). Resolved via the Partner Portal lookup. */
+  referral_code?: string | undefined;
   /** Platform failed to return the click token (e.g. web session token lost). */
   referrer_lost?: boolean | undefined;
   extraClicks?: number | undefined;
@@ -558,8 +613,19 @@ export function redirectTargetFor(app: AppName, platform: Platform): string {
   return "Web app → aurumi.ai";
 }
 
-function pushEvent(e: Omit<AttributionEvent, "event_id">): AttributionEvent {
-  const event: AttributionEvent = { event_id: nextId("EVT", 5), ...e };
+type EventInput = Omit<AttributionEvent, "event_id" | "source_event_id" | "received_at"> & {
+  source_event_id?: string | undefined;
+  received_at?: string | undefined;
+};
+
+function pushEvent(e: EventInput): AttributionEvent {
+  const event_id = nextId("EVT", 5);
+  const event: AttributionEvent = {
+    ...e,
+    event_id,
+    source_event_id: e.source_event_id ?? `${e.source_system}:${event_id.replace("EVT-", "")}`,
+    received_at: e.received_at ?? (seeding ? e.occurred_at : new Date().toISOString()),
+  };
   store.events.push(event);
   return event;
 }
@@ -621,6 +687,9 @@ export function applyResolution(attribution: Attribution, res: ResolutionOutput)
 
 function buildJourney(seed: JourneySeed): Attribution {
   const link = seed.link_id ? store.links.find((l) => l.link_id === seed.link_id)! : null;
+  if (link && link.status === "DISABLED") {
+    throw new Error(`Link ${link.link_id} is disabled and cannot originate a new journey`);
+  }
   const app: AppName = link?.app ?? seed.app ?? "AURUMI";
   const session_id = nextId("SES", 5);
   const base = seed.start;
@@ -811,9 +880,13 @@ function buildJourney(seed: JourneySeed): Attribution {
     attribution.user_id = nextId("U", 6);
     attribution.signup_id = nextId("SGN", 5);
     const at = iso(base, 7);
-    if (seed.claim) {
-      claims.push({ ...seed.claim, occurred_at: at });
-      resolve(at);
+    if (seed.referral_code) {
+      // Code → Partner Portal lookup → normalized claim → engine.
+      const claim = normalizeClaim(lookupReferralCodeIn(store.partners, seed.referral_code), at);
+      if (claim) {
+        claims.push(claim);
+        resolve(at);
+      }
     }
     pushEvent({
       event_type: "SIGNUP_STARTED",
@@ -823,7 +896,7 @@ function buildJourney(seed: JourneySeed): Attribution {
       user_id: attribution.user_id,
       signup_id: attribution.signup_id,
       source_system: "SIGNUP_SERVICE",
-      metadata: seed.claim ? { claimed_referral_code: seed.claim.code } : {},
+      metadata: seed.referral_code ? { referral_code: seed.referral_code } : {},
     });
   }
 
@@ -921,7 +994,7 @@ function buildJourney(seed: JourneySeed): Attribution {
 
   if (reached(seed.reach, "PAYMENT")) {
     attribution.first_payment = {
-      transaction_id: `TX-${90000 + Math.floor(rand() * 9000)}`,
+      transaction_id: nextId("TX", 5),
       amount: priceVersion.amount,
       currency: "INR",
       occurred_at: iso(base, 8 * 1440 + 40),
@@ -995,24 +1068,6 @@ for (const link of store.links) {
     source_system: "AURUMI_NATIVE_ATTRIBUTION",
     metadata: { token: link.token, destination: link.destination, created_by: link.created_by },
   });
-  if (link.status === "DISABLED") {
-    pushEvent({
-      event_type: "LINK_DISABLED",
-      occurred_at: daysAgo(6, 700).toISOString(),
-      link_id: link.link_id,
-      campaign_id: link.campaign_id,
-      partner_id: link.partner_id ?? undefined,
-      app: link.app,
-      platform: "WEB",
-      channel: link.channel,
-      source_system: "AURUMI_NATIVE_ATTRIBUTION",
-      metadata: {
-        reason: "Campaign creative retired",
-        behavior: link.disabled_behavior,
-        note: "Historical attribution remains intact",
-      },
-    });
-  }
 }
 
 /* ---- Flagship journey from the brief (Trace showcase) ---- */
@@ -1023,7 +1078,7 @@ const flagship = buildJourney({
   tenant_name: "ABC Manufacturing Pvt Ltd",
   email: "accounts@abcmfg.in",
   reach: "PAYMENT",
-  price_version_id: "PV-239",
+  price_version_id: "PV-256", // Aura Growth (Price Admin)
 });
 flagship.tenant_id = "T-008291";
 flagship.tenant_name = "ABC Manufacturing Pvt Ltd";
@@ -1097,7 +1152,7 @@ buildJourney({
   email: "geeta@geetasteel.in",
   reach: "SUBSCRIPTION",
   referrer_lost: true, // web token not preserved — engine falls back to the claim
-  claim: { partner_id: "P-104", code: "SRISAI104" },
+  referral_code: "SRISAI104",
 });
 buildJourney({
   link_id: "LNK-0003",
@@ -1193,9 +1248,35 @@ for (let i = 0; i < tenantNames.length; i += 1) {
     tenant_name: tenantNames[i]!,
     email: `contact@${tenantNames[i]!.toLowerCase().replace(/[^a-z]/g, "")}.in`,
     reach: pick(reaches),
-    claim: organic && claimed ? { partner_id: pick(partners).partner_id, code: "REF-CODE" } : undefined,
+    referral_code: organic && claimed ? pick(partners).referral_code : undefined,
   });
 }
+
+/* ---- Links disabled after their historical journeys ---- */
+for (const link of store.links) {
+  const seed = linkSeeds.find((l) => l.link_id === link.link_id);
+  if (seed?.status === "DISABLED") {
+    link.status = "DISABLED";
+    pushEvent({
+      event_type: "LINK_DISABLED",
+      occurred_at: daysAgo(6, 700).toISOString(),
+      link_id: link.link_id,
+      campaign_id: link.campaign_id,
+      partner_id: link.partner_id ?? undefined,
+      app: link.app,
+      platform: "WEB",
+      channel: link.channel,
+      source_system: "AURUMI_NATIVE_ATTRIBUTION",
+      metadata: {
+        reason: "Campaign creative retired",
+        behavior: link.disabled_behavior,
+        actor: "priya.n@aurumi.ai",
+        note: "Historical attribution remains intact",
+      },
+    });
+  }
+}
+seeding = false;
 
 /* ------------------------------ reactivity ------------------------------ */
 
